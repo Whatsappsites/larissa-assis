@@ -318,7 +318,6 @@ html,body{overflow-x:hidden}
       <a id="footWa" target="_blank" rel="noopener" title="WhatsApp"><svg viewBox="0 0 32 32"><path d="M16 3C9.4 3 4 8.4 4 15c0 2.1.6 4.2 1.6 6L4 29l8.2-1.5c1.2.6 2.5.9 3.8.9 6.6 0 12-5.4 12-12S22.6 3 16 3zm0 22c-1.2 0-2.4-.3-3.5-.8l-.8-.4-4.9.9 1-4.7-.5-.8c-.8-1.3-1.3-2.8-1.3-4.4 0-5.5 4.5-10 10-10s10 4.5 10 10-4.4 10.2-10 10.2zm5.4-7.5c-.3-.1-1.7-.9-2-1-.3-.1-.5-.1-.7.1-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.6.3-.5.9-1.8.1-.2 0-.4 0-.5l-.9-2.2c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 1.9-1.4.2-.7.2-1.2.2-1.4-.1-.1-.3-.2-.6-.3z"/></svg></a>
       <a id="footIg" target="_blank" rel="noopener" title="Instagram"><svg viewBox="0 0 24 24"><path d="M12 2.2c3.2 0 3.6 0 4.8.1 1.2.1 1.8.2 2.2.4.6.2 1 .5 1.4.9.4.4.7.8.9 1.4.2.4.4 1 .4 2.2.1 1.2.1 1.6.1 4.8s0 3.6-.1 4.8c-.1 1.2-.2 1.8-.4 2.2-.2.6-.5 1-.9 1.4-.4.4-.8.7-1.4.9-.4.2-1 .4-2.2.4-1.2.1-1.6.1-4.8.1s-3.6 0-4.8-.1c-1.2-.1-1.8-.2-2.2-.4-.6-.2-1-.5-1.4-.9-.4-.4-.7-.8-.9-1.4-.2-.4-.4-1-.4-2.2-.1-1.2-.1-1.6-.1-4.8s0-3.6.1-4.8c.1-1.2.2-1.8.4-2.2.2-.6.5-1 .9-1.4.4-.4.8-.7 1.4-.9.4-.2 1-.4 2.2-.4 1.2-.1 1.6-.1 4.8-.1zm0 2.7c-3.1 0-3.5 0-4.7.1-1.1.1-1.5.2-1.9.3-.5.2-.8.4-1.1.7-.3.3-.5.6-.7 1.1-.1.4-.3.8-.3 1.9-.1 1.2-.1 1.6-.1 4.7s0 3.5.1 4.7c.1 1.1.2 1.5.3 1.9.2.5.4.8.7 1.1.3.3.6.5 1.1.7.4.1.8.3 1.9.3 1.2.1 1.6.1 4.7.1s3.5 0 4.7-.1c1.1-.1 1.5-.2 1.9-.3.5-.2.8-.4 1.1-.7.3-.3.5-.6.7-1.1.1-.4.3-.8.3-1.9.1-1.2.1-1.6.1-4.7s0-3.5-.1-4.7c-.1-1.1-.2-1.5-.3-1.9-.2-.5-.4-.8-.7-1.1-.3-.3-.6-.5-1.1-.7-.4-.1-.8-.3-1.9-.3-1.2-.1-1.6-.1-4.7-.1zm0 3.5a5.1 5.1 0 110 10.2 5.1 5.1 0 010-10.2zm0 2.7a2.4 2.4 0 100 4.8 2.4 2.4 0 000-4.8zm5.3-2.6a1.2 1.2 0 11-2.4 0 1.2 1.2 0 012.4 0z"/></svg></a>
     </div>
-    <p id="footHours"></p>
     <p id="footAddr" style="display:none"></p>
     <p style="margin-top:8px"><a id="footMap" href="#" target="_blank" rel="noopener" style="display:none">📍 Como chegar no Google Maps</a></p>
 
@@ -529,17 +528,6 @@ function renderPublic(){
   const ig=String(cfg.instagram||''); document.getElementById('footIg').href=(ig && !ig.includes('SEU-') && /^https?:\/\//i.test(ig))?ig:'#';
   const fa=document.getElementById('footAddr'); if(fa){ const a=String(cfg.address||'').trim(); if(a){ fa.textContent='📍 '+a; fa.style.display='block'; } else fa.style.display='none'; }
   const fm=document.getElementById('footMap'); if(fm){ const m=String(cfg.maps||'').trim(); if(m && /^https?:\/\//i.test(m) && !m.includes('SEU-')){ fm.href=m; fm.style.display='inline'; } else fm.style.display='none'; }
-  // Rodapé usa horários reais por dia, sem mostrar um único intervalo para toda a semana.
-  const schedule=(Array.isArray(cfg.hours)&&cfg.hours.length===7)?cfg.hours:null;
-  const info=cfg.days.map((opened,i)=>{
-    if(!opened)return null;
-    const h=schedule?schedule[i]:null;
-    const first=(h&&(h.s1||h.s))||cfg.start;
-    const firstEnd=(h&&(h.e1||h.e))||cfg.end;
-    const second=h&&h.s2&&h.e2?' e '+h.s2+' às '+h.e2:'';
-    return DAYS[i].slice(0,3)+': '+first+' às '+firstEnd+second;
-  }).filter(Boolean);
-  document.getElementById('footHours').textContent='Funcionamento: '+(info.join(' · ')||'Sem atendimento');
 }
 /* CALENDÁRIO: libera os dias ABERTOS dentro dos próximos N dias (padrão 90, até 365).
    Não é só um mês: o cliente navega por vários meses com Anterior / Próximo.
