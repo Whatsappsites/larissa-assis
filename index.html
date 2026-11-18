@@ -66,6 +66,27 @@ header{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(23,23,23,
 @media(max-width:760px){.sobre-grid{grid-template-columns:1fr;gap:24px}}
 .hero-logo{background:#fff;padding:14px}
 
+
+/* CALENDÁRIO DE AGENDAMENTO — mostra o mês, só libera dias abertos, navega por vários meses */
+.cal-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+.cal-nav button{background:#fff;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:14px}
+.cal-nav button:disabled{opacity:.35;cursor:not-allowed}
+.cal-title{font-weight:700;font-size:15px;text-transform:capitalize}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:10px}
+.cal-wd{text-align:center;font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);text-transform:uppercase;padding:4px 0}
+.cal-day{aspect-ratio:1/1;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:14px;font-weight:600;transition:.15s;position:relative}
+.cal-day small{font-size:10px;font-weight:500;color:var(--muted)}
+.cal-day:hover{border-color:var(--gold)}
+.cal-day.open{border-color:#D8C9A8}
+.cal-day.sel{background:var(--gold);color:#fff;border-color:var(--gold)}
+.cal-day.sel small{color:#fff}
+.cal-day.today{outline:2px solid var(--gold);outline-offset:1px}
+.cal-day.closed,.cal-day.past{opacity:.35;cursor:not-allowed;text-decoration:line-through;background:#F5EEE3}
+.cal-day.empty{border:none;background:transparent;cursor:default}
+.cal-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
+.cal-legend i{display:inline-block;width:12px;height:12px;border-radius:4px;border:1px solid var(--line);vertical-align:middle;margin-right:4px}
+.cal-hint{font-size:12px;color:var(--muted);margin-top:6px}
+
 /* SERVICES */
 .grid-services{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}
 .card{background:linear-gradient(180deg,var(--dark2),var(--dark));border:1px solid var(--line);border-radius:12px;padding:30px;transition:.25s}
@@ -132,18 +153,86 @@ td{padding:10px;border-bottom:1px solid #2e2e2e}
 <body>
 
 <header>
-  
+  <div class="container nav">
+    <img class="logo" src="logo.png" alt="Larissa Assis">
+    <button class="hamb" onclick="document.getElementById('navLinks').classList.toggle('open')">☰</button>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#inicio" onclick="closeMenu()">Início</a></li>
+      <li><a href="#servicos" onclick="closeMenu()">Serviços</a>
+      <li><a href="#sobre" onclick="closeMenu()">Sobre</a></li></li>
+      <li><a href="#agendar" onclick="closeMenu()">Agendar</a></li>
+      <li><a href="#contato" onclick="closeMenu()">Contato</a></li>
+      <li><a href="#admin" onclick="closeMenu()">Área da Profissional</a></li>
+    </ul>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero" id="inicio">
+  <div>
+    <img class="hero-logo" src="logo-larissa.jpg" alt="Larissa Assis — Especialista em Unhas">
+    <div class="badge-la">✦ Especialista em Unhas ✦</div>
+    <h1>Beleza nas suas <span class="gold-text">mãos</span></h1>
+    <p>Agende seu horário online em poucos segundos. Manicure e pedicure com cuidado, capricho e acabamento impecável em cada detalhe.</p>
+    <a href="#agendar" class="btn btn-gold">AGENDAR HORÁRIO</a>
+    &nbsp;&nbsp;
+    <a href="#servicos" class="btn btn-outline">VER SERVIÇOS</a>
+  </div>
+</section>
+
+<!-- SERVICES -->
+<section id="servicos">
+  <div class="container">
+    <h2 class="section-title">Nossos <span class="gold-text">Serviços</span></h2>
+    <p class="section-sub">Cuidado, precisão e acabamento impecável para suas mãos.</p>
+    <div class="grid-services" id="servicesGrid"></div>
+    <div class="notice info" style="max-width:640px;margin:28px auto 0;text-align:center">⚠️ <b>Aviso!</b> Atendimento mediante agendamento. Venha com as unhas limpas e sem esmalte, se possível.</div>
   </div>
 </section>
 
 
 <!-- SOBRE — LARISSA (nova seção; não remove nenhuma funcionalidade existente) -->
 <section id="sobre" style="background:#FFFDFB;border-top:1px solid var(--line)">
-  
+  <div class="container">
+    <div class="sobre-grid">
+      <div><img src="larissa-foto.jpg" alt="Larissa Assis — Especialista em Unhas"></div>
+      <div>
+        <span class="badge-la">Sobre a Larissa</span>
+        <h2 class="section-title" style="text-align:left;margin-bottom:14px">Cuidado que se vê<br>em cada <span class="gold-text">detalhe</span></h2>
+        <p style="color:var(--muted)">Olá! Eu sou a <b style="color:var(--text)">Larissa Assis</b>, especialista em unhas. Aqui cada atendimento é pensado para você sair com as mãos lindas, saudáveis e com aquele acabamento que faz toda a diferença.</p>
+        <ul class="sobre-list">
+          <li>Atendimento personalizado e com hora marcada</li>
+          <li>Materiais esterilizados e cuidado com a saúde das suas unhas</li>
+          <li>Manicure e pedicure com acabamento impecável</li>
+          <li>Ambiente acolhedor, pontualidade e atenção a cada detalhe</li>
+        </ul>
+        <a href="#agendar" class="btn btn-gold">AGENDAR MEU HORÁRIO</a>
+        &nbsp;&nbsp;<a href="#servicos" class="btn btn-outline">VER SERVIÇOS</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BOOKING -->
+<section id="agendar" style="background:#F5EEE3;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="container">
+    <h2 class="section-title">Agende <span class="gold-text">Online</span></h2>
+    <p class="section-sub">Escolha o serviço, a data e o horário. Sem ligações, sem espera.</p>
+
+    <div class="booking-wrap" id="bookingForm">
+      <div class="notice info" style="margin:0 0 4px;text-align:center">⚠️ <b>Aviso!</b> Atendimento mediante agendamento. Venha com as unhas limpas e sem esmalte, se possível.</div>
       <label>Serviço</label>
-      <select id="bkService"></select>
-      <label>Data</label>
-      <select id="bkDate" onchange="renderSlots()"><option value="">Selecione a data</option></select>
+      <select id="bkService"><option value="1">Manicure — R$ 25,00 (40min)</option><option value="2">Pedicure — R$ 25,00 (40min)</option><option value="3">Manicure + Pedicure — R$ 45,00 (80min)</option></select>
+      <label>Data — toque em um dia aberto no calendário</label>
+      <div class="cal-nav">
+        <button type="button" id="calPrev" onclick="calPrev()">‹ Anterior</button>
+        <span class="cal-title" id="calTitle"></span>
+        <button type="button" id="calNext" onclick="calNext()">Próximo ›</button>
+      </div>
+      <div class="cal-grid" id="bkCalendar"></div>
+      <div class="cal-legend"><span><i style="background:#fff"></i> Aberto</span><span><i style="background:#F5EEE3"></i> Fechado / passado</span><span><i style="background:var(--gold)"></i> Selecionado</span></div>
+      <p class="cal-hint" id="calHint">Mostrando todos os dias abertos. Use Próximo para ver os próximos meses.</p>
+      <select id="bkDate" onchange="renderSlots()" style="display:none"><option value="">Selecione a data</option></select>
       <label>Horário disponível</label>
       <div class="slots" id="slots"><p class="slot-empty">Selecione uma data para ver os horários.</p></div>
       <label>Seu nome</label>
@@ -309,11 +398,12 @@ async function getSv(){
 function netErr(){alert('Sem conexão com a internet agora. Tente novamente em instantes.');}
 
 const DAYS=['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
-let cfg={whatsapp:'5575999999999',instagram:'https://www.instagram.com/SEU-INSTAGRAM-LARISSA',start:'08:00',end:'18:00',slotMin:20,advanceDays:90,
+let cfg={whatsapp:'5575999999999',instagram:'https://www.instagram.com/SEU-INSTAGRAM-LARISSA',start:'08:00',end:'18:00',slotMin:20,
   days:[false,true,true,true,true,true,true],
   hours:[0,1,2,3,4,5,6].map(()=>({s1:'08:00',e1:'12:00',s2:'14:00',e2:'18:00'}))};
-/* Serviços iniciais — VALORES INICIAIS, edite no painel da Larissa (aba Serviços e Preços).
-   Confirme preços/durações reais com a Larissa antes de publicar. */
+/* Serviços — SÓ manicure e pedicure, conforme definido pela Larissa.
+   Preços confirmados: Manicure R$ 25, Pedicure R$ 25, os dois juntos R$ 45.
+   Duração: 40 min cada, 80 min os dois juntos. Edite no painel se precisar. */
 let services=[
   {id:1,name:'Manicure',price:25,dur:40},
   {id:2,name:'Pedicure',price:25,dur:40},
@@ -345,9 +435,10 @@ function waClient(phone,msg){
 async function boot(){
   const c=await dbGet('/cfg'),sv=await dbGet('/services');
   if(c===undefined||sv===undefined){renderPublic();renderSlots();return;}
-  if(c){cfg=c;delete cfg.password;}
+  if(c&&typeof c==='object'){cfg={...cfg,...c};delete cfg.password;}
   const sl=Array.isArray(sv)?sv:Object.values(sv||{});
-  if(sl.length)services=sl.filter(Boolean);
+  const slOk=sl.filter(Boolean).filter(x=>x&&x.name&&String(x.name).trim());
+  if(slOk.length)services=slOk;
   try{bookings=await getBk();}catch(e){}
   renderPublic();renderSlots();
 }
@@ -370,8 +461,13 @@ function renderPublic(){
   const wd=cfg.days.map((v,i)=>v?DAYS[i].slice(0,3):null).filter(Boolean).join(', ');
   document.getElementById('footHours').innerHTML='Funcionamento: <b style="color:var(--gold)">'+wd+'</b> · '+cfg.start+' às '+cfg.end;
 }
-/* datas liberadas: só os próximos N dias (padrão 7), apenas dias em que o estúdio atende */
-const ADV=()=>Math.max(1,Math.min(90,Number(cfg.advanceDays)||90));
+/* CALENDÁRIO: libera os dias ABERTOS dentro dos próximos N dias (padrão 90, até 365).
+   Não é só um mês: o cliente navega por vários meses com Anterior / Próximo.
+   Só dia aberto é clicável. Dia fechado ou passado fica riscado e não agenda. */
+const ADV=()=>Math.max(1,Math.min(365,Number(cfg.advanceDays)||90));
+let calView=null; /* {y, m} do mês exibido no calendário */
+function calMonthKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function calLimitDate(){const d=new Date();d.setDate(d.getDate()+ADV());return d;}
 function fillDates(){
   const d=document.getElementById('bkDate'),cur=d.value;
   const open=(Array.isArray(cfg.days)&&cfg.days.length===7)?cfg.days:[0,1,1,1,1,1,1];
@@ -384,6 +480,65 @@ function fillDates(){
     h+='<option value="'+iso+'">'+WD[x.getDay()]+', '+iso.slice(8)+'/'+iso.slice(5,7)+(i===0?' (hoje)':'')+'</option>';
   }
   d.innerHTML=h;if(cur)d.value=cur;
+  renderCalendar();
+}
+function renderCalendar(){
+  const box=document.getElementById('bkCalendar');if(!box)return;
+  const today=new Date();today.setHours(0,0,0,0);
+  const limit=calLimitDate();limit.setHours(0,0,0,0);
+  if(!calView)calView={y:today.getFullYear(),m:today.getMonth()};
+  /* se o mês exibido ficou no passado (virou o mês), volta para o mês atual */
+  if(calView.y<today.getFullYear()||(calView.y===today.getFullYear()&&calView.m<today.getMonth()))calView={y:today.getFullYear(),m:today.getMonth()};
+  /* se o mês exibido passou do limite, trava no mês do limite */
+  if(calView.y>limit.getFullYear()||(calView.y===limit.getFullYear()&&calView.m>limit.getMonth()))calView={y:limit.getFullYear(),m:limit.getMonth()};
+  const open=(Array.isArray(cfg.days)&&cfg.days.length===7)?cfg.days:[0,1,1,1,1,1,1];
+  const MONTHS=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const title=document.getElementById('calTitle');if(title)title.textContent=MONTHS[calView.m]+' de '+calView.y;
+  const prev=document.getElementById('calPrev'),next=document.getElementById('calNext');
+  if(prev)prev.disabled=(calView.y===today.getFullYear()&&calView.m===today.getMonth());
+  if(next)next.disabled=(calView.y===limit.getFullYear()&&calView.m===limit.getMonth());
+  const hint=document.getElementById('calHint');
+  if(hint)hint.textContent='Mostrando '+MONTHS[calView.m]+' de '+calView.y+'. Dias abertos até '+String(limit.getDate()).padStart(2,'0')+'/'+String(limit.getMonth()+1).padStart(2,'0')+'/'+limit.getFullYear()+'. Use Próximo para ver os próximos meses.';
+  const sel=document.getElementById('bkDate')?document.getElementById('bkDate').value:'';
+  const WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  let h=WD.map(w=>'<div class="cal-wd">'+w+'</div>').join('');
+  const first=new Date(calView.y,calView.m,1);
+  const startDow=first.getDay();
+  for(let i=0;i<startDow;i++)h+='<div class="cal-day empty"></div>';
+  const daysInMonth=new Date(calView.y,calView.m+1,0).getDate();
+  for(let day=1;day<=daysInMonth;day++){
+    const d=new Date(calView.y,calView.m,day);d.setHours(0,0,0,0);
+    const iso=isoDate(d);
+    const isPast=d<today, isBeyond=d>limit, isClosed=!open[d.getDay()];
+    if(isPast||isBeyond||isClosed){
+      const label=isPast?'Passado':isBeyond?'Fora do período':'Fechado';
+      h+='<div class="cal-day '+(isPast?'past':'closed')+'"><span>'+day+'</span><small>'+label+'</small></div>';
+    } else {
+      const isSel=sel===iso, isToday=iso===isoDate(today);
+      h+='<div class="cal-day open'+(isSel?' sel':'')+(isToday?' today':'')+'" onclick="calSelect(\''+iso+'\')"><span>'+day+'</span><small>'+(isToday?'Hoje':WD[d.getDay()])+'</small></div>';
+    }
+  }
+  box.innerHTML=h;
+}
+function calPrev(){
+  if(!calView)return;
+  const today=new Date();
+  if(calView.y===today.getFullYear()&&calView.m===today.getMonth())return;
+  calView.m--;if(calView.m<0){calView.m=11;calView.y--;}
+  renderCalendar();
+}
+function calNext(){
+  if(!calView)return;
+  const limit=calLimitDate();
+  if(calView.y===limit.getFullYear()&&calView.m===limit.getMonth())return;
+  calView.m++;if(calView.m>11){calView.m=0;calView.y++;}
+  renderCalendar();
+}
+function calSelect(iso){
+  const d=document.getElementById('bkDate');if(!d)return;
+  /* garante que a data existe nas opções (só dia aberto dentro do período) */
+  if(!Array.from(d.options).some(o=>o.value===iso))return;
+  d.value=iso;renderCalendar();renderSlots();
 }
 function closeMenu(){document.getElementById('navLinks').classList.remove('open')}
 
@@ -398,7 +553,7 @@ function renderSlots(){
   const dow=new Date(date+'T12:00:00').getDay();
   const daysOpen=(Array.isArray(cfg.days)&&cfg.days.length===7)?cfg.days:[1,1,1,1,1,1,0];
   if(!daysOpen[dow]){box.innerHTML='<p class="slot-empty">⛔ Não atendemos neste dia. Escolha outra data.</p>';return;}
-  const s=svc(document.getElementById('bkService').value)||{dur:40,name:'Manicure Tradicional'};
+  const s=svc(document.getElementById('bkService').value)||{dur:40,name:'Manicure'};
   const HrDia=(cfg.hours&&cfg.hours.length===7)?cfg.hours:null; /* períodos individuais por dia */
   const dH=HrDia?HrDia[dow]:null;
   const ranges=[];
@@ -407,9 +562,9 @@ function renderSlots(){
   addR(dH&&dH.s2,dH&&dH.e2); /* período 2 (tarde) — opcional; o vão entre os períodos é o almoço */
   const dayBk=(bookings||[]).filter(b=>b&&b.date===date&&!isNaN(toMin(b.time||''))&&b.dur>0);
   /* GRADE DINÂMICA: passo ajustado à duração do serviço — múltiplo maior
-     de 20/10/5 que divide a duração. Ex.: Manicure(40) e Manicure+Pedicure(80) usam
-     grade de 20min (visual limpo); Manicure 40min / Pedicure 40min / Combo 80min;
-     Nail Art(15) de 5min. O encaixe automático (blockUntil) espaça os
+     de 20/10/5 que divide a duração. Ex.: Manicure(40) e Pedicure(40) usam
+     grade de 20min (visual limpo); Manicure+Pedicure(80) também usa 20min.
+     O encaixe automático (blockUntil) espaça os
      horários pela duração — nada se sobrepõe e os vãos são aproveitados. */
   const step=s.dur%20===0?20:(s.dur%10===0?10:5);
   /* monta a grade primeiro, depois calcula as estrelas */
@@ -512,7 +667,7 @@ function resetBooking(){
   document.getElementById('bookingDone').classList.add('hidden');
   document.getElementById('bookingForm').classList.remove('hidden');
   document.getElementById('bkName').value='';document.getElementById('bkPhone').value='';
-  document.getElementById('bkDate').value='';renderSlots();
+  document.getElementById('bkDate').value='';renderCalendar();renderSlots();
 }
 
 /* ============ ADMIN ============ */
@@ -808,8 +963,8 @@ function renderTabCfg(){
     +'<input id="cfgAddr" placeholder="Rua, número, bairro, cidade" value="'+esc(cfg.address||'')+'">'
     +'<label>Link do Google Maps</label>'
     +'<input id="cfgMaps" placeholder="https://maps.app.goo.gl/..." value="'+esc(cfg.maps||MAPS_DEFAULT)+'">'
-    +'<label>Dias liberados para agendamento (a partir de hoje)</label>'
-    +'<input id="cfgAdv" type="number" min="1" max="30" value="'+ADV()+'">'
+    +'<label>Quantos dias à frente o calendário libera (ex: 90 = cerca de 3 meses)</label>'
+    +'<input id="cfgAdv" type="number" min="1" max="365" value="'+ADV()+'">'
     +'<label>Nova senha de acesso</label>'
     +'<input id="cfgPass" type="password" placeholder="Deixe em branco para manter a atual">'
     +'<br><br><button class="btn btn-gold" onclick="saveCfg()">SALVAR CONFIGURAÇÕES</button><div id="cfgMsg"></div>'
@@ -833,7 +988,7 @@ async function saveCfg(){
     fresh.address=document.getElementById('cfgAddr').value.trim();
     const mp=document.getElementById('cfgMaps').value.trim();
     fresh.maps=/^https?:\/\//i.test(mp)?mp:'';
-    fresh.advanceDays=Math.max(1,Math.min(90,parseInt(document.getElementById('cfgAdv').value)||90));
+    fresh.advanceDays=Math.max(1,Math.min(365,parseInt(document.getElementById('cfgAdv').value)||90));
     const np=document.getElementById('cfgPass').value;
     if(np){if(np.length<6){document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">A senha deve ter ao menos 6 caracteres.</div>';return;}try{const rr=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:update?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:adminTok,password:np,returnSecureToken:true})});const jj=await rr.json();if(!jj.idToken)throw 0;setTok(jj);}catch(x){document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível trocar a senha.</div>';return;}}
     await dbPut('/cfg',fresh);
@@ -928,6 +1083,7 @@ async function restoreBackup(k){
 
 /* ============ INIT ============ */
 document.getElementById('bkService').addEventListener('change',renderSlots);
+renderPublic();renderSlots(); /* mostra serviços na hora, sem esperar Firebase */
 boot();
 
 /* ============ ATUALIZAÇÃO AUTOMÁTICA (quase tempo real) ============ */
