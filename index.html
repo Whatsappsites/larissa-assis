@@ -320,7 +320,6 @@ html,body{overflow-x:hidden}
     </div>
     <p id="footHours"></p>
     <p id="footAddr" style="display:none"></p>
-    <p style="margin-top:8px"><a id="footMap" href="#" target="_blank" rel="noopener" style="display:none">📍 Como chegar no Google Maps</a></p>
 
     <p style="margin-top:18px">© 2026 Larissa Assis — Especialista em Unhas. Todos os direitos reservados.</p>
   </div>
@@ -337,11 +336,12 @@ html,body{overflow-x:hidden}
     <p class="section-sub">Gerencie agendamentos, serviços e horários.</p>
 
     <div class="admin-login" id="adminLogin">
-      <input type="hidden" id="admEmail" value="">
+      <input type="hidden" id="admEmail" value="jv55241@gmail.com">
       <label for="admPass">Senha de acesso</label>
       <input type="password" id="admPass" placeholder="Digite a senha" autocomplete="current-password">
       <br><br>
       <button class="btn btn-gold" style="width:100%" onclick="adminLogin()">ENTRAR</button>
+      <button type="button" onclick="sendPasswordReset()" style="width:100%;margin-top:10px;background:none;border:none;color:var(--gold);font-size:13px;cursor:pointer;text-decoration:underline">Esqueci minha senha — enviar e-mail para redefinir</button>
       <div id="admErr"></div>
     </div>
 
@@ -375,13 +375,14 @@ window.addEventListener('error',function(e){ console.error('[site]', e.message, 
    Sem isso o site abre, mas não salva agendamentos.
    ============================================================ */
 /* CONFIG — PREENCHER NO FIREBASE /cfg (painel), NÃO SÓ AQUI.
-   WhatsApp, Instagram e Maps reais devem estar em /cfg no banco.
+   WhatsApp e Instagram reais devem estar em /cfg no banco. Maps foi removido a pedido da cliente.
    Se /cfg estiver vazio, o site mostra aviso e NÃO usa número falso para agendar.
    Regras: em firebase-rules.json troque ADMIN_UID pelo UID do admin em Authentication > Users.
    Desative Sign-up em Authentication > Settings, senão qualquer conta vira auth != null. */
 const DB='https://larissa-assis-default-rtdb.firebaseio.com';
-const MAPS_DEFAULT=''; // fallback vazio: sem link falso
-const FB_API_KEY='AIzaSyDLxQA4vQNvm56McFhyw0gLCjUCy3wJVKE', ADMIN_EMAIL='admin@larissa-assis.com';
+/* Maps removido — sem link de Maps, sem campo Maps, sem aviso de Maps. */
+const FB_API_KEY='AIzaSyDLxQA4vQNvm56McFhyw0gLCjUCy3wJVKE', ADMIN_EMAIL_DEFAULT='jv55241@gmail.com';
+/* E-mail real do Firebase: jv55241@gmail.com. O login usa o campo E-mail, não um e-mail fixo. */
 const NTFY_TOPIC=''; /* preencher com tópico único e secreto ou deixar vazio para desativar. Nunca usar o tópico TROCAR-... */
 const FAKE_WHATSAPP='5575999999999'; /* número falso antigo — se /cfg vier com ele, o site avisa em vez de usar */
 let adminTok=null,adminRef=null,adminExp=0;
@@ -479,7 +480,7 @@ const todayISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMo
 const overlaps=(s1,e1,s2,e2)=>s1<e2&&s2<e1;
 const svc=id=>services.find(s=>s.id==id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function isCfgPlaceholder(){ const w=(cfg.whatsapp||'').replace(/\D/g,''); const ig=String(cfg.instagram||''); const mp=String(cfg.maps||''); return !w || w===FAKE_WHATSAPP || ig.includes('SEU-') || ig.includes('seu-instagram') || mp.includes('SEU-'); }
+function isCfgPlaceholder(){ const w=(cfg.whatsapp||'').replace(/\D/g,''); const ig=String(cfg.instagram||''); return !w || w===FAKE_WHATSAPP || ig.includes('SEU-') || ig.includes('seu-instagram'); } /* Maps removido */
 function waLink(msg){let n=(cfg.whatsapp||'').replace(/\D/g,'');if(n===FAKE_WHATSAPP)return '#';if(n.length>11&&n.startsWith('55'))n=n.slice(2);if(n.length<10)return '#';return 'https://wa.me/55'+n+(msg?'?text='+encodeURIComponent(msg):'');}
 function isValidName(v){ const s=String(v||'').trim(); if(s.length<2||s.length>60)return false; if(/\d/.test(s))return false; return /^[A-Za-zÀ-ÿ\s'\-]+$/.test(s); }
 function isValidPhone(v){ const d=String(v||'').replace(/\D/g,''); if(d.length!==10&&d.length!==11)return false; if(/^(\d)\1+$/.test(d))return false; const ddd=Number(d.slice(0,2)); if(ddd<11||ddd>99)return false; if(d.length===11&&d[2]!=='9')return false; return true; }
@@ -515,13 +516,13 @@ function renderPublic(){
     `<option value="${s.id}">${esc(s.name)} — R$ ${Number(s.price).toFixed(2).replace('.',',')} (${esc(s.dur)}min)</option>`).join('');
   fillDates();
   const warn=document.getElementById('cfgWarn');
-  if(warn){ if(isCfgPlaceholder()){ warn.textContent='⚠️ Configuração pendente: WhatsApp, Instagram ou Maps ainda não foram preenchidos no painel da profissional. O agendamento por WhatsApp pode não funcionar até corrigir.'; warn.classList.add('show'); } else warn.classList.remove('show'); }
+  if(warn){ if(isCfgPlaceholder()){ warn.textContent='⚠️ Configuração pendente: WhatsApp ou Instagram ainda não foram preenchidos no painel da profissional.'; warn.classList.add('show'); } else warn.classList.remove('show'); }
   const wa=waLink('Olá! Vim pelo site do Larissa Assis e gostaria de mais informações.');
   document.getElementById('floatWa').href=wa;
   document.getElementById('footWa').href=wa;
   const ig=String(cfg.instagram||''); document.getElementById('footIg').href=(ig && !ig.includes('SEU-') && /^https?:\/\//i.test(ig))?ig:'#';
   const fa=document.getElementById('footAddr'); if(fa){ const a=String(cfg.address||'').trim(); if(a){ fa.textContent='📍 '+a; fa.style.display='block'; } else fa.style.display='none'; }
-  const fm=document.getElementById('footMap'); if(fm){ const m=String(cfg.maps||'').trim(); if(m && /^https?:\/\//i.test(m) && !m.includes('SEU-')){ fm.href=m; fm.style.display='inline'; } else fm.style.display='none'; }
+  /* Maps removido: sem botão Como chegar */
   const wd=cfg.days.map((v,i)=>v?DAYS[i].slice(0,3):null).filter(Boolean).join(', ');
   document.getElementById('footHours').innerHTML='Funcionamento: <b style="color:var(--gold)">'+esc(wd)+'</b> · '+esc(cfg.start)+' às '+esc(cfg.end);
 }
@@ -739,13 +740,51 @@ function resetBooking(){
 
 /* ============ ADMIN ============ */
 let admOk=false;
-async function adminLogin(){
-  const p=document.getElementById('admPass').value,e=document.getElementById('admErr');
-  if(!p){e.innerHTML='<div class="notice err" style="margin-top:14px">Digite a senha.</div>';return;}
+async function sendPasswordReset(){
+  const e=document.getElementById('admErr'); e.innerHTML='';
+  const email=ADMIN_EMAIL_DEFAULT;
+  if(!confirm('Enviar e-mail de redefinição para '+email+'?')) return;
   try{
-    const x=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:ADMIN_EMAIL,password:p,returnSecureToken:true})});
-    const j=await x.json();if(!j.idToken)throw 0;setTok(j);
-  }catch(err){e.innerHTML='<div class="notice err" style="margin-top:14px">Senha incorreta. Confira se você criou o usuário admin@larissa-assis.com no Firebase com essa senha.</div>';return;}
+    const x=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestType:'PASSWORD_RESET',email:email})});
+    const txt=await x.text(); let j={}; try{ j=JSON.parse(txt); }catch(_){}
+    if(j.error){
+      const code=String(j.error.message||'');
+      if(code.includes('EMAIL_NOT_FOUND')) e.innerHTML='<div class="notice err" style="margin-top:14px">E-mail '+email+' não encontrado no Firebase.</div>';
+      else e.innerHTML='<div class="notice err" style="margin-top:14px">Não consegui enviar: '+esc(code)+'</div>';
+      return;
+    }
+    e.innerHTML='<div class="notice ok" style="margin-top:14px">E-mail enviado para <b>'+email+'</b>. Abra sua caixa de entrada e spam, clique no link e crie a senha nova. Depois volte aqui e entre com a senha nova.</div>';
+  }catch(err){ e.innerHTML='<div class="notice err" style="margin-top:14px">Sem conexão: '+esc(String(err&&err.message||err))+'</div>'; }
+}
+async function adminLogin(){
+  const email=ADMIN_EMAIL_DEFAULT; /* só senha na tela — e-mail fixo jv55241@gmail.com por dentro */
+  const p=document.getElementById('admPass').value,e=document.getElementById('admErr');
+  e.innerHTML='';
+  if(!p){e.innerHTML='<div class="notice err" style="margin-top:14px">Digite a senha.</div>';return;}
+  if(!navigator.onLine){e.innerHTML='<div class="notice err" style="margin-top:14px">Sem internet. Conecte e tente de novo.</div>';return;}
+  let x=null, j=null, txt='';
+  try{
+    x=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:p,returnSecureToken:true})});
+    txt=await x.text();
+    try{ j=JSON.parse(txt); }catch(_){ throw new Error('Resposta inválida do Firebase (não JSON): '+txt.slice(0,120)); }
+    if(!j.idToken){
+      const code=String((j&&j.error&&j.error.message)||'Sem código');
+      console.error('[login] Firebase erro:', code, j);
+      let msg='';
+      if(code.includes('INVALID_LOGIN_CREDENTIALS')||code.includes('INVALID_PASSWORD')||code.includes('EMAIL_NOT_FOUND')||code.includes('USER_NOT_FOUND')) msg='Senha incorreta para <b>'+email+'</b>. Confira caps lock. Se esqueceu, use Redefinir senha no Firebase > Authentication > Usuários.';
+      else if(code.includes('TOO_MANY_ATTEMPTS')) msg='Muitas tentativas. Aguarde 5 minutos e tente de novo.';
+      else if(code.includes('USER_DISABLED')) msg='Usuário <b>'+email+'</b> está desativado no Firebase.';
+      else if(code.includes('API_KEY_INVALID')||code.includes('API key not valid')) msg='Chave API do Firebase está errada no código. Confira em Firebase > Project Settings > Web API Key e compare com FB_API_KEY no index.';
+      else if(code.includes('OPERATION_NOT_ALLOWED')) msg='Login por e-mail/senha está desativado. Ative em Authentication > Método de login > E-mail/senha.';
+      else msg='Firebase devolveu: <b>'+esc(code)+'</b>. Tire print desta mensagem.';
+      e.innerHTML='<div class="notice err" style="margin-top:14px">'+msg+'<br><small style="font-size:11px;opacity:.8">Detalhe: '+esc(code)+'</small></div>';return;
+    }
+    try{localStorage.setItem('admEmail',email);}catch(_){}
+    setTok(j);
+  }catch(err){
+    console.error('[login] Falha de rede:', err);
+    e.innerHTML='<div class="notice err" style="margin-top:14px">Sem conexão com o Firebase: <b>'+esc(String(err&&err.message||err))+'</b><br><small style="font-size:11px">Verifique internet, limpe o cache do site (segure e recarregue) ou tente no modo anônimo. Se persistir, tire print desta mensagem.</small></div>';return;
+  }
   admOk=true;document.getElementById('adminLogin').classList.add('hidden');
   document.getElementById('adminPanel').classList.remove('hidden');
   try{bookings=await getBk();await syncSlots(bookings);/* NUNCA salvar senha em /cfg. Se um dia existiu, apague manualmente no Console e troque a senha. */ensureDailyBackup();}catch(err){}
@@ -1033,9 +1072,7 @@ function renderTabCfg(){
     +'<input id="cfgIg" placeholder="https://instagram.com/seu-instagram-larissa" value="'+esc(cfg.instagram)+'">'
     +'<label>Endereço (aparece no rodapé do site)</label>'
     +'<input id="cfgAddr" placeholder="Rua, número, bairro, cidade" value="'+esc(cfg.address||'')+'">'
-    +'<label>Link do Google Maps</label>'
-    +'<input id="cfgMaps" placeholder="https://maps.app.goo.gl/..." value="'+esc(cfg.maps||MAPS_DEFAULT)+'">'
-    +'<label>Quantos dias à frente o calendário libera (ex: 90 = cerca de 3 meses)</label>'
+        +'<label>Quantos dias à frente o calendário libera (ex: 90 = cerca de 3 meses)</label>'
     +'<input id="cfgAdv" type="number" min="1" max="365" value="'+ADV()+'">'
     +'<label>Nova senha de acesso</label>'
     +'<input id="cfgPass" type="password" placeholder="Deixe em branco para manter a atual">'
@@ -1050,7 +1087,7 @@ function renderTabCfg(){
     +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0"><button class="btn btn-outline" style="padding:10px 18px;font-size:14px" onclick="backupNow()">💾 Salvar backup agora</button><button class="btn btn-outline" style="padding:10px 18px;font-size:14px" onclick="listBackups()">📋 Ver backups</button></div>'
     +'<div id="bkpMsg"></div><div id="bkpList"></div>';
   /* Enter no campo de senha entra no painel. Máscara de telefone. Enter no nome/telefone tenta agendar. */
-try{ const ap=document.getElementById('admPass'); if(ap)ap.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); adminLogin(); } }); const ph=document.getElementById('bkPhone'); if(ph)ph.addEventListener('input',()=>formatPhoneInput(ph)); const nm=document.getElementById('bkName'); if(nm)nm.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); submitBooking(); } }); if(ph)ph.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); submitBooking(); } }); }catch(e){}
+try{ const em=document.getElementById('admEmail'); if(em) em.value='jv55241@gmail.com'; const ap=document.getElementById('admPass'); if(ap)ap.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); adminLogin(); } }); const ph=document.getElementById('bkPhone'); if(ph)ph.addEventListener('input',()=>formatPhoneInput(ph)); const nm=document.getElementById('bkName'); if(nm)nm.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); submitBooking(); } }); if(ph)ph.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); submitBooking(); } }); }catch(e){}
 updateNotifBtn();
 }
 async function saveCfg(){
@@ -1060,8 +1097,7 @@ async function saveCfg(){
     { const waV=document.getElementById('cfgWa').value.replace(/\D/g,''); if(!waV||waV.length<10||waV.length>13||waV===FAKE_WHATSAPP){ document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">WhatsApp inválido. Use só números com DDD, ex.: 75999999999.</div>'; return; } fresh.whatsapp=waV; }
     { const igV=document.getElementById('cfgIg').value.trim(); if(igV && !/^https?:\/\//i.test(igV)){ document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">Instagram deve começar com https:// ou ficar vazio.</div>'; return; } fresh.instagram=igV; }
     fresh.address=document.getElementById('cfgAddr').value.trim();
-    const mp=document.getElementById('cfgMaps').value.trim();
-    fresh.maps=/^https?:\/\//i.test(mp)?mp:'';
+    delete fresh.maps; /* Maps removido: limpa campo antigo se existir no banco */
     fresh.advanceDays=Math.max(1,Math.min(365,parseInt(document.getElementById('cfgAdv').value)||90));
     const np=document.getElementById('cfgPass').value;
     if(np){if(np.length<6){document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">A senha deve ter ao menos 6 caracteres.</div>';return;}try{const rr=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:update?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:adminTok,password:np,returnSecureToken:true})});const jj=await rr.json();if(!jj.idToken)throw 0;setTok(jj);}catch(x){document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível trocar a senha.</div>';return;}}
