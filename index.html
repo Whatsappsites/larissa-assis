@@ -297,9 +297,7 @@ td{padding:10px;border-bottom:1px solid #2e2e2e}
       <a id="footIg" target="_blank" rel="noopener" title="Instagram"><svg viewBox="0 0 24 24"><path d="M12 2.2c3.2 0 3.6 0 4.8.1 1.2.1 1.8.2 2.2.4.6.2 1 .5 1.4.9.4.4.7.8.9 1.4.2.4.4 1 .4 2.2.1 1.2.1 1.6.1 4.8s0 3.6-.1 4.8c-.1 1.2-.2 1.8-.4 2.2-.2.6-.5 1-.9 1.4-.4.4-.8.7-1.4.9-.4.2-1 .4-2.2.4-1.2.1-1.6.1-4.8.1s-3.6 0-4.8-.1c-1.2-.1-1.8-.2-2.2-.4-.6-.2-1-.5-1.4-.9-.4-.4-.7-.8-.9-1.4-.2-.4-.4-1-.4-2.2-.1-1.2-.1-1.6-.1-4.8s0-3.6.1-4.8c.1-1.2.2-1.8.4-2.2.2-.6.5-1 .9-1.4.4-.4.8-.7 1.4-.9.4-.2 1-.4 2.2-.4 1.2-.1 1.6-.1 4.8-.1zm0 2.7c-3.1 0-3.5 0-4.7.1-1.1.1-1.5.2-1.9.3-.5.2-.8.4-1.1.7-.3.3-.5.6-.7 1.1-.1.4-.3.8-.3 1.9-.1 1.2-.1 1.6-.1 4.7s0 3.5.1 4.7c.1 1.1.2 1.5.3 1.9.2.5.4.8.7 1.1.3.3.6.5 1.1.7.4.1.8.3 1.9.3 1.2.1 1.6.1 4.7.1s3.5 0 4.7-.1c1.1-.1 1.5-.2 1.9-.3.5-.2.8-.4 1.1-.7.3-.3.5-.6.7-1.1.1-.4.3-.8.3-1.9.1-1.2.1-1.6.1-4.7s0-3.5-.1-4.7c-.1-1.1-.2-1.5-.3-1.9-.2-.5-.4-.8-.7-1.1-.3-.3-.6-.5-1.1-.7-.4-.1-.8-.3-1.9-.3-1.2-.1-1.6-.1-4.7-.1zm0 3.5a5.1 5.1 0 110 10.2 5.1 5.1 0 010-10.2zm0 2.7a2.4 2.4 0 100 4.8 2.4 2.4 0 000-4.8zm5.3-2.6a1.2 1.2 0 11-2.4 0 1.2 1.2 0 012.4 0z"/></svg></a>
     </div>
     <p id="footHours"></p>
-    <p id="footAddr" style="margin-top:10px;display:none"></p>
-    <iframe title="Localização" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://www.google.com/maps?q=Ipir%C3%A1%2C%20Bahia&output=embed" style="width:100%;max-width:560px;height:220px;border:0;border-radius:12px;margin-top:14px"></iframe><br>
-    <a id="footMap" class="btn btn-outline" style="margin-top:14px;padding:10px 22px;font-size:14px" target="_blank" rel="noopener">📍 Como chegar</a>
+
     <p style="margin-top:18px">© 2026 Larissa Assis — Especialista em Unhas. Todos os direitos reservados.</p>
   </div>
 </footer>
@@ -315,6 +313,9 @@ td{padding:10px;border-bottom:1px solid #2e2e2e}
     <p class="section-sub">Gerencie agendamentos, serviços e horários.</p>
 
     <div class="admin-login" id="adminLogin">
+      <label>E-mail da profissional</label>
+      <input type="email" id="admEmail" placeholder="E-mail que você criou no Firebase" autocomplete="email">
+      <br><br>
       <label>Senha de acesso</label>
       <input type="password" id="admPass" placeholder="Digite a senha">
       <br><br>
@@ -487,9 +488,8 @@ function renderPublic(){
   document.getElementById('floatWa').href=wa;
   document.getElementById('footWa').href=wa;
   document.getElementById('footIg').href=cfg.instagram||'#';
-  const ad=String(cfg.address||'').trim(),fa=document.getElementById('footAddr');
-  fa.innerHTML=ad?'📍 '+esc(ad):'';fa.style.display=ad?'block':'none';
-  document.getElementById('footMap').href=cfg.maps||MAPS_DEFAULT;
+  const fa=document.getElementById('footAddr');if(fa){fa.style.display='none';}
+  const fm=document.getElementById('footMap');if(fm){fm.style.display='none';}
   const wd=cfg.days.map((v,i)=>v?DAYS[i].slice(0,3):null).filter(Boolean).join(', ');
   document.getElementById('footHours').innerHTML='Funcionamento: <b style="color:var(--gold)">'+wd+'</b> · '+cfg.start+' às '+cfg.end;
 }
@@ -706,10 +706,13 @@ function resetBooking(){
 let admOk=false;
 async function adminLogin(){
   const p=document.getElementById('admPass').value,e=document.getElementById('admErr');
+  const em=((document.getElementById('admEmail')||{}).value||'').trim()||ADMIN_EMAIL;
+  if(!em||em.indexOf('@')<0){e.innerHTML='<div class="notice err" style="margin-top:14px">Digite o e-mail que você criou no Firebase.</div>';return;}
+  if(!p){e.innerHTML='<div class="notice err" style="margin-top:14px">Digite a senha.</div>';return;}
   try{
-    const x=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:ADMIN_EMAIL,password:p,returnSecureToken:true})});
+    const x=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,password:p,returnSecureToken:true})});
     const j=await x.json();if(!j.idToken)throw 0;setTok(j);
-  }catch(err){e.innerHTML='<div class="notice err" style="margin-top:14px">Senha incorreta.</div>';return;}
+  }catch(err){e.innerHTML='<div class="notice err" style="margin-top:14px">E-mail ou senha incorretos. Confira o e-mail no Firebase > Authentication > Users.</div>';return;}
   admOk=true;document.getElementById('adminLogin').classList.add('hidden');
   document.getElementById('adminPanel').classList.remove('hidden');
   try{bookings=await getBk();await syncSlots(bookings);dbPut('/cfg/password',null).catch(()=>{});ensureDailyBackup();}catch(err){}
