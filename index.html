@@ -63,7 +63,40 @@ header{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(23,23,23,
 .sobre-list{list-style:none;margin:18px 0 26px}
 .sobre-list li{padding:8px 0 8px 28px;position:relative;color:var(--text)}
 .sobre-list li:before{content:"✦";position:absolute;left:0;color:var(--gold)}
-@media(max-width:760px){.sobre-grid{grid-template-columns:1fr;gap:24px}}
+@media(max-width:760px){
+  /* CELULAR - computador fica igual, só o celular muda */
+  .container{padding:0 16px}
+  .nav{height:60px}
+  .nav .logo{height:36px}
+  .nav-links{top:60px}
+  .hero{min-height:auto;padding:96px 16px 36px}
+  .hero-logo{width:min(300px,86vw);margin:0 auto 20px}
+  .hero h1{font-size:32px;line-height:1.15}
+  .hero p{font-size:15px;line-height:1.5;margin:12px auto 22px}
+  .hero .btn{display:block;width:100%;margin:6px 0;padding:14px}
+  .section-title{font-size:28px;line-height:1.2}
+  .section-sub{font-size:14px;padding:0 8px}
+  .sobre-grid{grid-template-columns:1fr;gap:20px;text-align:center}
+  .sobre-grid img{width:min(300px,84vw);height:auto;aspect-ratio:4/5;object-position:center top;margin:0 auto}
+  .sobre-grid .section-title{text-align:center!important}
+  .sobre-list{text-align:left;margin:14px 0 20px}
+  .sobre-list li{font-size:14px;line-height:1.5}
+  .grid-services{grid-template-columns:1fr;gap:14px}
+  .card{padding:22px 18px}
+  .card .price{font-size:24px}
+  .booking-wrap{padding:20px 16px}
+  .slots{grid-template-columns:repeat(3,1fr);gap:8px}
+  .slots button{padding:10px 4px;font-size:13px}
+  #bkService,#bkDate,#bkName,#bkPhone{font-size:16px}
+  footer img{width:200px!important}
+}
+@media(max-width:480px){
+  .hero{padding-top:88px}
+  .hero-logo{width:88vw}
+  .hero h1{font-size:29px}
+  .sobre-grid img{width:88vw}
+  .slots{grid-template-columns:repeat(2,1fr)}
+}
 .hero-logo{background:#fff;padding:14px}
 
 
@@ -186,7 +219,7 @@ td{padding:10px;border-bottom:1px solid #2e2e2e}
     <h2 class="section-title">Nossos <span class="gold-text">Serviços</span></h2>
     <p class="section-sub">Cuidado, precisão e acabamento impecável para suas mãos.</p>
     <div class="grid-services" id="servicesGrid"></div>
-    <div class="notice info" style="max-width:640px;margin:28px auto 0;text-align:center">⚠️ <b>Aviso!</b> Atendimento mediante agendamento. Venha com as unhas limpas e sem esmalte, se possível.</div>
+    
   </div>
 </section>
 
@@ -220,7 +253,6 @@ td{padding:10px;border-bottom:1px solid #2e2e2e}
     <p class="section-sub">Escolha o serviço, a data e o horário. Sem ligações, sem espera.</p>
 
     <div class="booking-wrap" id="bookingForm">
-      <div class="notice info" style="margin:0 0 4px;text-align:center">⚠️ <b>Aviso!</b> Atendimento mediante agendamento. Venha com as unhas limpas e sem esmalte, se possível.</div>
       <label>Serviço</label>
       <select id="bkService"><option value="1">Manicure — R$ 25,00 (40min)</option><option value="2">Pedicure — R$ 25,00 (40min)</option><option value="3">Manicure + Pedicure — R$ 45,00 (80min)</option></select>
       <label>Data — toque em um dia aberto no calendário</label>
