@@ -368,7 +368,7 @@ window.addEventListener('error',function(e){
    ============================================================ */
 const DB='https://larissa-assis-default-rtdb.firebaseio.com'; // ← TROCAR: URL do RTDB do projeto da Larissa
 const MAPS_DEFAULT='https://maps.app.goo.gl/SEU-LINK-LARISSA'; // ← TROCAR: link “Como chegar” do estúdio
-const FB_API_KEY='AIzaSyDLxQA4vQNvm56McFhyw0gLCjUCy3wJVKE', ADMIN_EMAIL='SEU-EMAIL-ADMIN-LARISSA@exemplo.com'; // ← TROCAR: API key + e-mail do admin da Larissa
+const FB_API_KEY='AIzaSyDLxQA4vQNvm56McFhyw0gLCjUCy3wJVKE', ADMIN_EMAIL='admin@larissa-assis.com'; // ← TROCAR: API key + e-mail do admin da Larissa
 let adminTok=null,adminRef=null,adminExp=0;
 function setTok(j){adminTok=j.idToken||j.id_token;adminRef=j.refreshToken||j.refresh_token;adminExp=Date.now()+Number(j.expiresIn||j.expires_in)*1000;}
 async function authQ(){
@@ -715,14 +715,11 @@ function resetBooking(){
 let admOk=false;
 async function adminLogin(){
   const p=document.getElementById('admPass').value,e=document.getElementById('admErr');
-  if(ADMIN_EMAIL.indexOf('SEU-EMAIL')>=0||ADMIN_EMAIL.indexOf('exemplo.com')>=0){e.innerHTML='<div class="notice err" style="margin-top:14px">Falta colocar seu e-mail dentro do código. No GitHub, procure por SEU-EMAIL-ADMIN-LARISSA@exemplo.com e troque pelo e-mail que você criou no Firebase.</div>';return;}
-  const em=((document.getElementById('admEmail')||{}).value||'').trim()||ADMIN_EMAIL;
-  if(!em||em.indexOf('@')<0){e.innerHTML='<div class="notice err" style="margin-top:14px">Digite o e-mail que você criou no Firebase.</div>';return;}
   if(!p){e.innerHTML='<div class="notice err" style="margin-top:14px">Digite a senha.</div>';return;}
   try{
-    const x=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,password:p,returnSecureToken:true})});
+    const x=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:ADMIN_EMAIL,password:p,returnSecureToken:true})});
     const j=await x.json();if(!j.idToken)throw 0;setTok(j);
-  }catch(err){e.innerHTML='<div class="notice err" style="margin-top:14px">Senha incorreta. Se você trocou o e-mail no Firebase, confira o e-mail dentro do código.</div>';return;}
+  }catch(err){e.innerHTML='<div class="notice err" style="margin-top:14px">Senha incorreta. Confira se você criou o usuário admin@larissa-assis.com no Firebase com essa senha.</div>';return;}
   admOk=true;document.getElementById('adminLogin').classList.add('hidden');
   document.getElementById('adminPanel').classList.remove('hidden');
   try{bookings=await getBk();await syncSlots(bookings);dbPut('/cfg/password',null).catch(()=>{});ensureDailyBackup();}catch(err){}
