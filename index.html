@@ -423,17 +423,12 @@ async function getBk(){
 }
 async function dbPatch(val){const r=await fetch(await dbUrl('/'),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(val)});if(!r.ok)throw new Error('Falha ao salvar (HTTP '+r.status+')');return r.json();}
 /* horários públicos: só ADICIONA/atualiza; remove apenas "órfãos" com mais de 10 min sem agendamento correspondente */
+/* Auditoria: rotina de reconciliação automática desativada.
+   Não excluir /slots ou /taken por inferência, pois leituras incompletas e
+   alterações concorrentes poderiam liberar horários com clientes agendados. */
 async function syncSlots(list){
-  const have=await dbGet('/slots'),hv=(have&&!Array.isArray(have))?have:{};
-  const L=(list||[]).filter(b=>b&&isSafeId(b.id)),ids=new Set(L.map(b=>String(b.id))),upd={};
-  L.forEach(b=>{upd['slots/'+b.id]={id:b.id,date:b.date,time:b.time,dur:b.dur,createdAt:b.createdAt||Date.now()};});
-  for(const k in hv){if(!ids.has(k)){const c=hv[k]&&hv[k].createdAt?Number(hv[k].createdAt):(/^[0-9]+$/.test(k)?Number(k):NaN);if(c&&Date.now()-c>600000)upd['slots/'+k]=null;}} /* órfão só se provar idade por createdAt (novo) ou id numérico antigo; UUID sem createdAt nunca é apagado por engano */
-  /* /taken: cria trava para agendamentos antigos (migração) e limpa trava órfã com mais de 10 min. Trava órfã jovem NÃO é apagada: pode ser um cliente no meio do PATCH */
-  const haveTaken=await dbGet('/taken'),ht=(haveTaken&&!Array.isArray(haveTaken))?haveTaken:{};
-  const expected={};L.forEach(b=>{takenKeysFor(b.date,b.time,b.dur).forEach(tk=>{expected[tk]=takenValFor(b,tk);});});
-  for(const tk in expected)upd['taken/'+tk]=expected[tk];
-  for(const tk in ht){if(!expected[tk]){const c=ht[tk]&&ht[tk].createdAt?Number(ht[tk].createdAt):NaN;if(c&&Date.now()-c>600000)upd['taken/'+tk]=null;}}
-  if(Object.keys(upd).length)await dbPatch(upd);
+  return; // Nenhuma mutação automática de reservas nem de travas.
+
 }
 /* ALTERAÇÕES SEGURAS: lê a agenda fresca, muda só o que foi pedido e grava SÓ a diferença (atômico).
    Nunca reescreve a lista inteira, então um agendamento novo de cliente não é apagado por engano. */
@@ -588,7 +583,7 @@ function renderPublic(){
   document.getElementById('servicesGrid').innerHTML=svcOk().map(s=>
     `<div class="card"><h3>${esc(s.name)}</h3><div class="price gold-text">R$ ${Number(s.price).toFixed(2).replace('.',',')}</div><div class="dur">⏱ ${esc(s.dur)} minutos</div></div>`).join('');
   document.getElementById('bkService').innerHTML=svcOk().map(s=>
-    `<option value="${s.id}">${esc(s.name)} — R$ ${Number(s.price).toFixed(2).replace('.',',')} (${esc(s.dur)}min)</option>`).join('');
+    `<option value="${esc(s.id)}">${esc(s.name)} — R$ ${Number(s.price).toFixed(2).replace('.',',')} (${esc(s.dur)}min)</option>`).join('');
   fillDates();
   const warn=document.getElementById('cfgWarn');
   if(warn){ if(isCfgPlaceholder()){ warn.textContent='⚠️ Configuração pendente: WhatsApp, Instagram ou Maps ainda não foram preenchidos no painel da profissional. O agendamento por WhatsApp pode não funcionar até corrigir.'; warn.classList.add('show'); } else warn.classList.remove('show'); }
@@ -876,7 +871,7 @@ function renderTabAg(){
   if(old>0){
     top='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
       +'<button class="badge" style="cursor:pointer;font-size:13px;padding:8px 16px" onclick="toggleOld()">📁 '+old+' antigo(s) oculto(s) — toque para ver</button>'
-      +'<button class="btn btn-danger" onclick="clearOld()">Apagar histórico</button></div>'
+      +'<button class="btn btn-outline" onclick="clearOld()">🔒 Histórico protegido</button></div>'
       +'<div id="oldList" style="display:'+(oldOpen?'block':'none')+'"></div>';
   }
   if(!fut.length){
@@ -911,7 +906,7 @@ function renderTabAg(){
       +'<br><span style="color:var(--muted);font-size:13px">'+esc(b.name)+' · 📱 '+esc(b.phone)+'</span></div>'
       +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
       +'<select onchange="changeService(\''+b.id+'\',this.value)" title="Trocar serviço" style="background:#1e1e1e;color:var(--gold);border:1px solid #444;border-radius:8px;padding:8px;font-size:13px;max-width:100%">'
-      +svcOk().map(x=>'<option value="'+x.id+'" '+(String(x.id)===String(b.serviceId)?'selected':'')+'>'+esc(x.name)+' · R$'+Number(x.price)+'</option>').join('')
+      +svcOk().map(x=>'<option value="'+esc(x.id)+'" '+(String(x.id)===String(b.serviceId)?'selected':'')+'>'+esc(x.name)+' · R$'+Number(x.price)+'</option>').join('')
       +'</select>'
       +'<a class="btn btn-outline" style="padding:7px 14px;font-size:13px" target="_blank" href="'+waClient(b.phone,mensagemLembreteWhatsApp(b))+'">WhatsApp</a>'
       +(podeConfirmar?'<button class="btn" style="padding:7px 14px;font-size:13px;border-color:#2ecc71;color:#2ecc71" onclick="doneBk(\''+b.id+'\')">✅ Confirmar atendimento</button>':'')
@@ -948,17 +943,9 @@ function fillOld(){
   el.innerHTML=html||'<div class="notice info">Nenhum agendamento antigo.</div>';
 }
 async function clearOld(){
-  try{
-    const latest=await getBk(); /* versão fresca do banco */
-    const oldC=latest.filter(b=>b.date<todayISO()).length;
-    if(!oldC)return alert('Não há agendamentos antigos para apagar.');
-    const naoConf=latest.filter(b=>b.date<todayISO()&&!b.done);
-    const valorNC=naoConf.reduce((a,b)=>a+Number(b.price||0),0);
-    const aviso=naoConf.length?'\n\n⚠️ '+naoConf.length+' deles NÃO foram confirmados (R$ '+valorNC.toFixed(2).replace('.',',')+' não contabilizado). Confirme-os antes se já foram atendidos.':'';
-    if(!confirm('Apagar '+oldC+' agendamento(s) antigo(s)? Essa ação não pode ser desfeita.'+aviso))return;
-    bookings=await bkApply(m=>{for(const k in m)if(m[k].date<todayISO())delete m[k];});
-    renderTabAg();alert('Histórico antigo apagado!');
-  }catch(e){netErr();}
+  /* Proteção deliberada: não apagar histórico em lote.
+     Cancelamentos individuais continuam com confirmação e backup obrigatório. */
+  alert('Os agendamentos antigos permanecem arquivados para evitar perdas. Para guardar uma cópia, entre em Configurações e use Baixar backup atualizado. Nenhum dado foi apagado.');
 }
 async function changeService(id,sid){
   const b=bookings.find(x=>String(x.id)===String(id));if(!b)return;
@@ -968,12 +955,23 @@ async function changeService(id,sid){
     const latest=await getBk();
     const target=latest.find(x=>String(x.id)===String(id));if(!target)return;
     const st=toMin(target.time);
-    { const dowC=new Date(target.date+'T12:00:00').getDay(); const dHC=(cfg.hours&&cfg.hours.length===7)?cfg.hours[dowC]:null; const rgC=[]; const addRC=(a,b)=>{const x=toMin(a||''),y=toMin(b||'');if(!isNaN(x)&&!isNaN(y)&&y>x)rgC.push([x,y]);}; addRC((dHC&&(dHC.s1||dHC.s))||cfg.start,(dHC&&(dHC.e1||dHC.e))||cfg.end); addRC(dHC&&dHC.s2,dHC&&dHC.e2); if(!rgC.some(r=>st>=r[0]&&st+sv.dur<=r[1])){alert('⛔ O novo serviço não cabe no expediente deste dia. Remarque para outro horário.');renderAdmin();return;} }
+    { if(!rangesForDate(target.date).some(r=>st>=r[0]&&st+sv.dur<=r[1])){alert('⛔ O novo serviço não cabe no expediente deste dia. Remarque para outro horário.');renderAdmin();return;} }
     const bate=latest.find(x=>String(x.id)!==String(id)&&x.date===target.date&&overlaps(st,st+sv.dur,toMin(x.time),toMin(x.time)+x.dur));
     if(bate){alert('⛔ "'+sv.name+'" dura '+sv.dur+' min e bate com o agendamento das '+bate.time+' ('+bate.name+'). Remarque um dos dois antes de trocar o serviço.');renderAdmin();return;}
-    bookings=await bkApply(m=>{for(const k in m)if(String(m[k].id)===String(id))Object.assign(m[k],{serviceId:sv.id,service:sv.name,price:sv.price,dur:sv.dur});});
+    bookings=await bkApply(m=>{
+      const cur=Object.values(m).find(x=>String(x.id)===String(id));
+      if(!cur)throw new Error('O agendamento não está mais no banco.');
+      if(cur.date!==target.date||cur.time!==target.time||Number(cur.dur)!==Number(target.dur))
+        throw new Error('O agendamento mudou durante a edição. Atualize a agenda.');
+      const currentStart=toMin(cur.time);
+      if(!rangesForDate(cur.date).some(r=>currentStart>=r[0]&&currentStart+Number(sv.dur)<=r[1]))
+        throw new Error('O serviço não cabe no expediente atual.');
+      if(Object.values(m).some(x=>String(x.id)!==String(id)&&x.date===cur.date&&overlaps(currentStart,currentStart+Number(sv.dur),toMin(x.time),toMin(x.time)+Number(x.dur))))
+        throw new Error('Outro agendamento passou a ocupar esse período.');
+      Object.assign(cur,{serviceId:sv.id,service:sv.name,price:sv.price,dur:sv.dur});
+    });
     renderAdmin();
-  }catch(e){netErr();}
+  }catch(e){alert(e&&e.message||'Falha ao alterar serviço.');}
 }
 async function doneBk(id){
   const b=bookings.find(x=>String(x.id)===String(id));if(!b)return;
@@ -981,17 +979,35 @@ async function doneBk(id){
   try{
     const latest=await getBk(); /* pega a versão mais recente do banco pra não apagar agendamentos novos */
     const target=latest.find(x=>String(x.id)===String(id));if(!target)return;
-    bookings=await bkApply(m=>{for(const k in m)if(String(m[k].id)===String(id))m[k].done=true;});
+    bookings=await bkApply(m=>{
+      const cur=Object.values(m).find(x=>String(x.id)===String(id));
+      if(!cur)throw new Error('Agendamento ausente. Atualize a agenda.');
+      if(cur.date!==target.date||cur.time!==target.time||Number(cur.dur)!==Number(target.dur))
+        throw new Error('O agendamento foi alterado em outra sessão. Atualize a agenda.');
+      const endAt=new Date(cur.date+'T'+cur.time+':00').getTime()+Number(cur.dur||0)*60000;
+      if(!Number.isFinite(endAt)||endAt>Date.now())throw new Error('Só é possível confirmar atendimentos que já terminaram.');
+      cur.done=true;if(!Number(cur.doneAt))cur.doneAt=Date.now();
+    });
     renderAdmin();
-  }catch(e){netErr();}
+  }catch(e){alert(e&&e.message||'Não foi possível confirmar atendimento.');}
 }
 async function cancelBk(id){
-  if(!confirm('Cancelar este agendamento?'))return;
+  const selected=bookings.find(x=>String(x.id)===String(id));if(!selected)return;
+  if(!confirm('Cancelar este agendamento? Esta ação libera o horário para outro cliente.'))return;
+  if(prompt('Confirme digitando CANCELAR para evitar exclusões acidentais:')!=='CANCELAR')return;
   try{
-    bookings=await bkApply(m=>{for(const k in m)if(String(m[k].id)===String(id))delete m[k];});
+    if(!(await makeBackup('antes')))throw new Error('Falha ao salvar cópia preventiva. Cancelamento interrompido.');
+    bookings=await bkApply(m=>{
+      const key=Object.keys(m).find(k=>String(m[k].id)===String(id));
+      if(key===undefined)throw new Error('Esse agendamento não existe mais. Nada foi excluído.');
+      const current=m[key];
+      if(current.date!==selected.date||current.time!==selected.time||Number(current.dur)!==Number(selected.dur))
+        throw new Error('O agendamento mudou em outra sessão. Nada foi excluído; atualize a agenda.');
+      delete m[key];
+    });
     renderTabAg();renderPublic();renderSlots();
     alert('Agendamento cancelado.');
-  }catch(e){netErr();}
+  }catch(e){alert(e&&e.message||'Não foi possível cancelar. Nenhuma exclusão foi confirmada.');}
 }
 let rsB=null;
 function reschedule(id){
@@ -1010,15 +1026,12 @@ function rsCheck(){
   const date=document.getElementById('rsDate').value,time=document.getElementById('rsTime').value;
   if(!date||!time){warn.textContent='Escolha a data e o horário.';return false;}
   if(!isValidDateStr(date)||!isValidTimeStr(time)){warn.textContent='Data ou horário inválido.';return false;}
+  if(date<todayISO()){warn.textContent='⛔ Não é possível remarcar para uma data passada.';return false;}
   if(toMin(time)%5!==0){warn.textContent='Escolha horário em intervalos de 5 minutos, ex.: 08:00, 08:05.';return false;}
-  const dow=new Date(date+'T12:00:00').getDay();
-  if(!(cfg.days||[])[dow]){warn.textContent='⛔ Não atendemos neste dia da semana.';return false;}
+  if(!isOpenOn(date)){warn.textContent='⛔ Dia fechado, sem exceção de abertura.';return false;}
   const st=toMin(time);
   if(date===todayISO()&&st<=new Date().getHours()*60+new Date().getMinutes()){warn.textContent='⛔ Esse horário de hoje já passou.';return false;}
-  const dH=(cfg.hours&&cfg.hours.length===7)?cfg.hours[dow]:null;
-  const ranges=[];const addR=(a,b)=>{const x=toMin(a||''),y=toMin(b||'');if(!isNaN(x)&&!isNaN(y)&&y>x)ranges.push([x,y]);};
-  addR((dH&&(dH.s1||dH.s))||cfg.start,(dH&&(dH.e1||dH.e))||cfg.end);
-  addR(dH&&dH.s2,dH&&dH.e2);
+  const ranges=rangesForDate(date);
   if(!ranges.some(r=>st>=r[0]&&st+rsB.dur<=r[1])){warn.textContent='⛔ Fora do expediente deste dia ou não cabe antes do fechamento.';return false;}
   if(bookings.some(x=>x.id!==rsB.id&&x.date===date&&overlaps(st,st+rsB.dur,toMin(x.time),toMin(x.time)+x.dur))){warn.textContent='⛔ Já existe agendamento neste horário.';return false;}
   warn.textContent='';
@@ -1032,12 +1045,23 @@ async function rsConfirm(){
   if(!confirm('Remarcar '+rsB.name+' para '+nd.split('-').reverse().join('/')+' às '+nt+'?'))return;
   try{
     const idr=rsB.id;
+    const currentCfg=await dbGet('/cfg');
+    if(currentCfg===undefined)throw new Error('Não foi possível conferir o expediente atualizado. Nenhuma alteração foi feita.');
+    const policyCfg=currentCfg&&typeof currentCfg==='object'?{...cfg,...currentCfg}:cfg;
+    if(currentCfg&&typeof currentCfg==='object'&&!Object.prototype.hasOwnProperty.call(currentCfg,'specialDates'))delete policyCfg.specialDates;
+    const a=toMin(nt);
     bookings=await bkApply(m=>{
-      const me=Object.values(m).find(x=>String(x.id)===String(idr)),a=toMin(nt);   /* confere de novo na agenda ATUAL do banco */
-      if(me&&Object.values(m).some(x=>String(x.id)!==String(idr)&&x.date===nd&&overlaps(a,a+me.dur,toMin(x.time),toMin(x.time)+x.dur)))throw new Error('conflito');
-      for(const k in m)if(String(m[k].id)===String(idr)){m[k].date=nd;m[k].time=nt;}
+      const me=Object.values(m).find(x=>String(x.id)===String(idr));
+      if(!me)throw new Error('Agendamento não encontrado. Atualize a agenda antes de remarcar.');
+      if(nd<todayISO()||!isOpenOn(nd,policyCfg)||!rangesForDate(nd,policyCfg).some(r=>a>=r[0]&&a+Number(me.dur)<=r[1]))
+        throw new Error('O expediente deste dia foi alterado. Nenhuma remarcação foi gravada.');
+      if(Object.values(m).some(x=>String(x.id)!==String(idr)&&x.date===nd&&overlaps(a,a+Number(me.dur),toMin(x.time),toMin(x.time)+Number(x.dur))))
+        throw new Error('Esse horário acabou de ser ocupado por outro cliente. Escolha outro.');
+      if(String(me.date)!==String(rsB.date)||String(me.time)!==String(rsB.time)||Number(me.dur)!==Number(rsB.dur))
+        throw new Error('O agendamento já foi alterado em outra sessão. Atualize a agenda.');
+      me.date=nd;me.time=nt;
     });rsClose();renderAdmin();renderSlots();
-  }catch(e){if(e&&e.message==='conflito'){alert('Esse horário acabou de ser ocupado por outro cliente. Escolha outro.');return;}netErr();}
+  }catch(e){alert(e&&e.message||'Não foi possível remarcar. Nenhuma alteração foi confirmada.');}
 }
 function renderTabSv(){
   const box=document.getElementById('tab-sv');
@@ -1266,15 +1290,15 @@ async function saveHours(){
     H.push({s1:inicio||'08:00',e1:fim||'12:00',s2:'',e2:''});
   }
   try{
-    const remoto=await dbGet('/cfg');
-    if(remoto===undefined)throw new Error('Falha de leitura do Firebase');
+    const snap=await serviceSnapshot('/cfg');
+    const remoto=snap.value;
     const fresh={...((remoto&&typeof remoto==='object')?remoto:cfg)};
     delete fresh.password;
     fresh.days=dias;
     fresh.hours=H;
     fresh.slotMin=intervalo;
     fresh.start='18:30';fresh.end='22:30';
-    await dbPut('/cfg',fresh);
+    await servicePutIfUnchanged('/cfg',fresh,snap.etag);
     cfg=fresh;
     renderPublic();renderSlots();
     out.innerHTML='<div class="notice ok" style="margin-top:12px">Horários salvos com sucesso. Somente um período por dia. Agendamentos existentes mantidos.</div>';
@@ -1295,9 +1319,9 @@ function onSpecialDateChange(){
   const date=document.getElementById('spDate').value;
   const sp=specialForDate(date);
   const mode=document.getElementById('spMode');
-  if(sp&&mode){
-    mode.value=sp.open?'open':'closed';
-    if(sp.open){document.getElementById('spStart').value=sp.start;document.getElementById('spEnd').value=sp.end;}
+  if(mode){
+    mode.value=sp?(sp.open?'open':'closed'):'closed';
+    if(sp&&sp.open){document.getElementById('spStart').value=sp.start;document.getElementById('spEnd').value=sp.end;}
   }
   specialModeChanged();
   const out=document.getElementById('spMsg');if(out)out.textContent='';
@@ -1393,16 +1417,22 @@ function renderTabCfg(){
     +'<small style="color:var(--muted)">Avisa neste aparelho quando um cliente agendar (Android/PC, com o painel aberto).</small>'
     +'<hr style="border:none;border-top:1px solid #333;margin:24px 0 16px">'
     +'<label>Backup da agenda</label>'
-    +'<small style="color:var(--muted)">Uma cópia da agenda é guardada sozinha 1 vez por dia (ficam os últimos 14 dias).</small>'
+    +'<small style="color:var(--muted)">O backup diário é criado quando a profissional acessa o painel. Cópias antigas não são excluídas automaticamente.</small>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0"><button class="btn btn-outline" style="padding:10px 18px;font-size:14px" onclick="backupNow()">💾 Salvar backup agora</button><button class="btn btn-gold" style="padding:10px 18px;font-size:14px" id="bkpDownloadNow" onclick="downloadBackupNow()">⬇️ Baixar backup atualizado</button><button class="btn btn-outline" style="padding:10px 18px;font-size:14px" onclick="listBackups()">📋 Ver backups</button></div>'
     +'<small style="color:var(--muted)">O download salva um arquivo JSON com os dados atuais no seu aparelho. Ele contém nomes e telefones dos clientes: mantenha o arquivo protegido. Não apaga nem modifica a agenda.</small>'
-    +'<div id="bkpMsg"></div><div id="bkpList"></div>';
+    +'<div id="bkpMsg"></div><div id="bkpList"></div>'
+    +'<hr style="border:none;border-top:1px solid #333;margin:24px 0 16px">'
+    +'<label>Auditoria de armazenamento — somente leitura</label>'
+    +'<small style="color:var(--muted)">Simula a retenção (90 dias para atendimentos concluídos e retenção de backups automáticos). Não exclui nada. Backups manuais e anteriores à restauração são preservados.</small>'
+    +'<div style="margin:12px 0"><button class="btn btn-outline" id="retAuditBtn" onclick="previewRetention()">🔎 Simular limpeza e espaço</button></div>'
+    +'<div id="retAuditMsg" role="status" aria-live="polite"></div>';
   updateNotifBtn();
 }
 async function saveCfg(){
   try{
-    const fc=await dbGet('/cfg');if(fc===undefined)throw new Error('offline');
-    const fresh=fc||cfg;delete fresh.password; /* versão mais recente do banco */
+    const snap=await serviceSnapshot('/cfg');
+    const fc=snap.value;
+    const fresh={...((fc&&typeof fc==='object')?fc:cfg)};delete fresh.password; /* versão mais recente do banco */
     { const waV=document.getElementById('cfgWa').value.replace(/\D/g,''); if(!waV||waV.length<10||waV.length>13||waV===FAKE_WHATSAPP){ document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">WhatsApp inválido. Use só números com DDD, ex.: 75999999999.</div>'; return; } fresh.whatsapp=waV; }
     { const igV=document.getElementById('cfgIg').value.trim(); if(igV && !/^https?:\/\//i.test(igV)){ document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">Instagram deve começar com https:// ou ficar vazio.</div>'; return; } fresh.instagram=igV; }
     fresh.address=document.getElementById('cfgAddr').value.trim();
@@ -1411,15 +1441,108 @@ async function saveCfg(){
     fresh.advanceDays=Math.max(1,Math.min(365,parseInt(document.getElementById('cfgAdv').value)||90));
     const np=document.getElementById('cfgPass').value;
     if(np){if(np.length<6){document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">A senha deve ter ao menos 6 caracteres.</div>';return;}try{const rr=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:update?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:adminTok,password:np,returnSecureToken:true})});const jj=await rr.json();if(!jj.idToken)throw 0;setTok(jj);}catch(x){document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível trocar a senha.</div>';return;}}
-    await dbPut('/cfg',fresh);
+    await servicePutIfUnchanged('/cfg',fresh,snap.etag);
     cfg=fresh;
     renderPublic();
     document.getElementById('cfgMsg').innerHTML='<div class="notice ok" style="margin-top:12px">Configurações salvas! Já visíveis para todos os clientes.</div>';
   }catch(e){netErr();}
 }
 
+/* ============ AUDITORIA DE RETENÇÃO: SOMENTE LEITURA ============
+   Este módulo não faz dbPut, dbPatch, DELETE nem modifica registros.
+   Candidatos NÃO significam autorização para exclusão: é preciso validar backup
+   externo e, depois, implantar uma rotina de servidor separada e testada. */
+const RETENTION_FINISHED_DAYS=90;
+function retentionCutoff(day,days){
+  const valid=isValidDateStr(day)?day:todayISO();
+  const d=new Date(valid+'T12:00:00');d.setDate(d.getDate()-days);return isoDate(d);
+}
+function retentionEntries(x){
+  return Array.isArray(x)?x.filter(Boolean):Object.values(x&&typeof x==='object'?x:{}).filter(Boolean);
+}
+function retentionBytes(obj){
+  const txt=JSON.stringify(obj||{});
+  if(typeof TextEncoder!=='undefined')return new TextEncoder().encode(txt).length;
+  return new Blob([txt]).size;
+}
+function retentionWeekKey(day){
+  const d=new Date(day+'T12:00:00');
+  const dow=(d.getDay()+6)%7;
+  d.setDate(d.getDate()-dow);
+  return isoDate(d);
+}
+/* Mantém 7 diários recentes, uma cópia por semana nas últimas 8 semanas,
+   uma por mês nos últimos 12 meses e no mínimo as 2 automáticas mais recentes.
+   Preserva manual/pré-restauração/nomes desconhecidos; nenhuma escrita. */
+function retentionBackupPlan(keys,day){
+  const autos=(keys||[]).filter(k=>/^\d{4}-\d{2}-\d{2}$/.test(k)&&isValidDateStr(k)&&k<=day).sort().reverse();
+  const keep=new Set(autos.slice(0,7));
+  const weekly=new Set(),monthly=new Set(),cut56=retentionCutoff(day,56),cut365=retentionCutoff(day,365);
+  for(const k of autos){
+    if(k>=cut56){const wk=retentionWeekKey(k);if(!weekly.has(wk)&&weekly.size<8){keep.add(k);weekly.add(wk);}}
+    if(k>=cut365){const month=k.slice(0,7);if(!monthly.has(month)&&monthly.size<12){keep.add(k);monthly.add(month);}}
+  }
+  autos.slice(0,2).forEach(k=>keep.add(k));
+  return {total:(keys||[]).length,autoTotal:autos.length,keepAuto:keep.size,
+    reviewAuto:autos.filter(k=>!keep.has(k)),protectedOther:(keys||[]).length-autos.length};
+}
+function retentionPlan(data,day=todayISO()){
+  const rows=retentionEntries(data.bookings),cut=retentionCutoff(day,RETENTION_FINISHED_DAYS);
+  let future=0,pendingPast=0,finishedRecent=0,finishedOldWithTimestamp=0,finishedOldWithoutTimestamp=0,invalid=0,cancelled=0;
+  const ids=new Set();
+  for(const b of rows){
+    if(!b||typeof b!=='object'||!isSafeId(b.id)||!isValidDateStr(b.date)){invalid++;continue;}
+    ids.add(String(b.id));
+    if(b.date>=day){future++;continue;}
+    if(b.status==='cancelled'){cancelled++;continue;} /* modelo não usa status cancelado atualmente */
+    if(b.done!==true){pendingPast++;continue;}
+    if(b.date>cut){finishedRecent++;continue;}
+    const doneAt=Number(b.doneAt);
+    if(Number.isFinite(doneAt)&&doneAt>0&&Number.isFinite(new Date(doneAt).getTime())&&new Date(doneAt).toISOString().slice(0,10)<=cut){
+      finishedOldWithTimestamp++;
+    }else finishedOldWithoutTimestamp++;
+  }
+  let orphanOldSlots=0,orphanOldTaken=0;
+  for(const x of retentionEntries(data.slots))if(x&&isValidDateStr(x.date)&&x.date<cut&&x.id&&!ids.has(String(x.id)))orphanOldSlots++;
+  for(const x of retentionEntries(data.taken))if(x&&isValidDateStr(x.date)&&x.date<cut&&x.bookingId&&!ids.has(String(x.bookingId)))orphanOldTaken++;
+  const backups=retentionBackupPlan(data.backupKeys,day);
+  const approxBackupBytes=retentionBytes({at:new Date(day+'T12:00:00').toISOString(),n:rows.length,bookings:data.bookings||{},services:data.services||{},cfg:data.cfg||{}});
+  return {total:rows.length,future,pendingPast,finishedRecent,finishedOldWithTimestamp,finishedOldWithoutTimestamp,invalid,cancelled,
+    orphanOldSlots,orphanOldTaken,backups,approxBackupBytes,possibleBackupBytes:backups.reviewAuto.length*approxBackupBytes,
+    currentBookingsBytes:retentionBytes(data.bookings)};
+}
+async function previewRetention(){
+  const msg=document.getElementById('retAuditMsg'),btn=document.getElementById('retAuditBtn');
+  if(!msg)return;
+  if(!admOk||!adminTok){msg.textContent='Entre na área profissional para consultar o armazenamento.';return;}
+  if(btn)btn.disabled=true;
+  msg.textContent='Conferindo registros em modo somente leitura…';
+  try{
+    const [b,s,t,sv,cf,keys]=await Promise.all([
+      dbGet('/bookings'),dbGet('/slots'),dbGet('/taken'),dbGet('/services'),dbGet('/cfg'),bkpKeys()]);
+    if([b,s,t,sv,cf,keys].some(x=>x===undefined))throw new Error('Leitura incompleta. Não é seguro calcular a prévia.');
+    const r=retentionPlan({bookings:b,slots:s,taken:t,services:sv,cfg:cf,backupKeys:keys});
+    const kb=n=>(n/1024).toFixed(1).replace('.',',')+' KiB';
+    msg.innerHTML='<div class="notice info" style="margin-top:8px">'
+      +'<b>Simulação — nenhum dado foi apagado</b><br>'
+      +'Agendamentos futuros preservados: <b>'+r.future+'</b><br>'
+      +'Antigos ainda não concluídos: <b>'+r.pendingPast+'</b> (protegidos)<br>'
+      +'Concluídos recentes: <b>'+r.finishedRecent+'</b> (protegidos)<br>'
+      +'Concluídos há mais de 90 dias, com confirmação antiga registrada: <b>'+r.finishedOldWithTimestamp+'</b> (apenas candidatos a análise)<br>'
+      +'Concluídos sem confirmação datada: <b>'+r.finishedOldWithoutTimestamp+'</b> (protegidos)<br>'
+      +'Horários/travas antigos sem reserva correspondente: <b>'+r.orphanOldSlots+' / '+r.orphanOldTaken+'</b> (verificação manual necessária)<br>'
+      +'Backups no banco: <b>'+r.backups.total+'</b> ('+r.backups.protectedOther+' manuais/anteriores/desconhecidos protegidos)<br>'
+      +'Backups automáticos candidatos a revisão de retenção: <b>'+r.backups.reviewAuto.length+'</b><br>'
+      +'Espaço dos agendamentos atuais (JSON): <b>'+kb(r.currentBookingsBytes)+'</b><br>'
+      +'Potencial estimado de economia com backups automáticos redundantes: <b>'+kb(r.possibleBackupBytes)+'</b><br>'
+      +'<small>Estimativa baseada no tamanho atual da agenda; backups antigos podem ser menores. Não inclui índices, sobrecarga do Firebase ou tráfego. Antes de qualquer exclusão, confira e baixe um backup externo completo e valide a restauração.</small>'
+      +'</div>';
+  }catch(e){msg.innerHTML='<div class="notice err">'+esc(e&&e.message||'Falha ao simular a retenção')+'. Nenhum dado foi modificado.</div>';}
+  finally{if(btn)btn.disabled=false;}
+}
+
 /* ============ BACKUP DA AGENDA ============ */
-const BKP_KEEP=14;            /* quantos dias de backup ficam guardados */
+/* Backups permanecem armazenados: nenhuma rotina de exclusão automática no navegador. */
 let bkpDay='';
 const isoDate=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 const bkpDateOf=k=>/^\d{4}-\d{2}-\d{2}/.test(k)?k.slice(0,10):null;
@@ -1434,19 +1557,20 @@ async function bkpKeys(){   /* lista só os nomes dos backups; undefined = erro 
 }
 async function makeBackup(tag){   /* tag: auto | manual | antes. Só COPIA; nunca altera a agenda */
   if(!adminTok)return false; /* backup SÓ do admin: cliente lê só /slots (sem nome/telefone) e salvaria backup incompleto */
-  const bk=await getBk();         /* lança erro se a rede falhar */
-  const sv=await dbGet('/services');if(sv===undefined)throw new Error('offline');
-  const cf=await dbGet('/cfg');if(cf===undefined)throw new Error('offline');
-  if(!bk.length)return false;     /* nunca guarda backup vazio */
-  const n=new Date(),hm=String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0');
-  const id=isoDate(n)+(tag==='auto'?'':(tag==='manual'?'_manual-':'_antes-')+hm);
-  await dbPut('/backups/'+id,{at:n.toISOString(),n:bk.length,bookings:bk,services:Array.isArray(sv)?sv:(sv?Object.values(sv):[]),cfg:cf||null});
+  const [bk,sv,cf]=await Promise.all([dbGet('/bookings'),dbGet('/services'),dbGet('/cfg')]);
+  if(bk===undefined||sv===undefined||cf===undefined)throw new Error('Falha ao ler os dados completos para backup.');
+  const all=Object.values(bk||{}).filter(Boolean);
+  if(!all.length)return false; /* não substituir o último backup por uma agenda vazia */
+  const n=new Date(),hm=String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0')+String(n.getSeconds()).padStart(2,'0');
+  const id=isoDate(n)+(tag==='auto'?'':(tag==='manual'?'_manual-':'_antes-')+hm+'-'+Math.random().toString(36).slice(2,8));
+  const safeCfg=cf&&typeof cf==='object'?{...cf}:{};delete safeCfg.password;
+  await dbPut('/backups/'+id,{at:n.toISOString(),n:all.length,bookings:bk,services:sv||{},cfg:safeCfg});
   return true;
 }
-async function pruneBackups(){    /* apaga SÓ backups com mais de BKP_KEEP dias (nunca mexe na agenda) */
-  const keys=await bkpKeys();if(!keys)return;
-  const lim=new Date();lim.setDate(lim.getDate()-BKP_KEEP);const cut=isoDate(lim);
-  for(const k of keys){const d=bkpDateOf(k);if(d&&d<cut)await dbPut('/backups/'+k,null);}
+async function pruneBackups(){
+  /* Desativado: não apaga backups automáticos, manuais ou pré-restauração.
+     Retenção/exclusão exige plano de armazenamento e conferência externa. */
+  return;
 }
 async function ensureDailyBackup(){   /* 1 backup automático por dia, feito pelo ADMIN. Cliente não cria backup: sem backup é melhor que backup sem nome/telefone */
   if(!adminTok)return;
@@ -1456,7 +1580,7 @@ async function ensureDailyBackup(){   /* 1 backup automático por dia, feito pel
     if(has===undefined)return;               /* sem internet: tenta de novo depois */
     if(has===null){
       if(!(await makeBackup('auto'))){bkpDay=t;return;}   /* agenda vazia: nada a guardar */
-      await pruneBackups();
+      /* Não limpar backups automaticamente. */
     }
     bkpDay=t;
   }catch(e){}
