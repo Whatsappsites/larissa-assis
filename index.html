@@ -162,6 +162,20 @@ footer{border-top:1px solid var(--line);padding:40px 0;text-align:center;color:v
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:26px}
 .tab{padding:10px 18px;border-radius:6px;background:#F5EEE3;border:1px solid var(--line);color:var(--muted);cursor:pointer;font-size:14px;font-weight:600}
 .tab.active{background:var(--gold);color:#1E1A16;border-color:var(--gold)}
+/* Serviços: cartões legíveis no celular e edição dentro do próprio painel */
+.sv-service-list{display:grid;gap:10px}
+.sv-service-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.35)}
+.sv-service-data{flex:1;min-width:170px;overflow-wrap:anywhere}
+.sv-service-data strong{display:block;font-size:16px;margin-bottom:7px}
+.sv-service-meta{display:flex;flex-wrap:wrap;gap:14px;font-size:14px;color:var(--muted)}
+.sv-service-actions{display:flex;flex-wrap:wrap;gap:8px}
+.sv-btn{padding:9px 12px;font-size:13px}
+.sv-edit-box{border:1px solid var(--gold);border-radius:12px;padding:20px;margin-top:18px;background:rgba(184,137,79,.05)}
+.sv-edit-box label{display:block;margin-bottom:7px;font-size:13px;color:var(--gold);font-weight:600}
+.sv-edit-box input{width:100%;min-width:0}
+.sv-edit-box .row-flex>div{flex:1;min-width:140px}
+.sv-edit-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+@media(max-width:520px){.sv-service-row{align-items:flex-start}.sv-service-actions{width:100%}.sv-service-actions .btn{flex:1}.sv-edit-actions .btn{width:100%}}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th{text-align:left;color:var(--gold);padding:10px;border-bottom:1px solid var(--line);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
 td{padding:10px;border-bottom:1px solid #2e2e2e}
@@ -321,6 +335,7 @@ html,body{overflow-x:hidden}
     <p id="footAddr" style="display:none"></p>
     <p style="margin-top:8px"><a id="footMap" href="#" target="_blank" rel="noopener" style="display:none">📍 Como chegar no Google Maps</a></p>
 
+    <p style="margin-top:18px"><button type="button" class="btn btn-outline" style="font-size:14px;padding:10px 16px" onclick="installLarissaApp()">📱 Adicionar à tela inicial</button></p>
     <p style="margin-top:18px">© 2026 Larissa Assis — Especialista em Unhas. Todos os direitos reservados.</p>
   </div>
 </footer>
@@ -629,12 +644,11 @@ function renderSlots(){
   addR((dH&&(dH.s1||dH.s))||cfg.start,(dH&&(dH.e1||dH.e))||cfg.end); /* período 1 (manhã) */
   addR(dH&&dH.s2,dH&&dH.e2); /* período 2 (tarde) — opcional; o vão entre os períodos é o almoço */
   const dayBk=(bookings||[]).filter(b=>b&&b.date===date&&!isNaN(toMin(b.time||''))&&b.dur>0);
-  /* GRADE DINÂMICA: passo ajustado à duração do serviço — múltiplo maior
-     de 20/10/5 que divide a duração. Ex.: Manicure(40) e Pedicure(40) usam
-     grade de 20min (visual limpo); Manicure+Pedicure(80) também usa 20min.
-     O encaixe automático (blockUntil) espaça os
-     horários pela duração — nada se sobrepõe e os vãos são aproveitados. */
-  const step=s.dur%20===0?20:(s.dur%10===0?10:5);
+  /* GRADE CONFIGURÁVEL: avanço definido pela profissional em cfg.slotMin.
+     blockUntil impede opções que se sobreponham, mesmo que o passo
+     configurado seja menor que a duração do serviço. */
+  const grade=Number(cfg.slotMin);
+  const step=(Number.isInteger(grade)&&grade>=5&&grade<=120&&grade%5===0)?grade:20;
   /* monta a grade primeiro, depois calcula as estrelas */
   const grid=[];
   let blockUntil=-1; /* fim do último horário aceito: impede que dois horários oferecidos se sobreponham */
@@ -948,55 +962,107 @@ async function rsConfirm(){
 }
 function renderTabSv(){
   const box=document.getElementById('tab-sv');
-  let rows=services.map(s=>'<tr><td>'+esc(s.name)+'</td><td>R$ '+Number(s.price).toFixed(2).replace('.',',')+'</td><td>'+s.dur+' min</td>'
-    +'<td style="white-space:nowrap"><button class="btn btn-outline" style="padding:7px 12px;font-size:13px;margin-right:6px" onclick="editService('+Number(s.id)+')">Editar</button>'
-    +'<button class="btn btn-danger" onclick="delService('+Number(s.id)+')">Excluir</button></td></tr>').join('');
-  box.innerHTML='<table><tr><th>Serviço</th><th>Preço</th><th>Duração</th><th></th></tr>'+rows+'</table>'
+  const rows=services.map(s=>
+    '<div class="sv-service-row">'
+      +'<div class="sv-service-data"><strong>'+esc(s.name)+'</strong>'
+      +'<div class="sv-service-meta"><span>R$ '+Number(s.price).toFixed(2).replace('.',',')+'</span><span>⏱ '+esc(s.dur)+' min</span></div></div>'
+      +'<div class="sv-service-actions">'
+      +'<button type="button" class="btn btn-outline sv-btn" data-sv-edit="'+esc(s.id)+'">Editar</button>'
+      +'<button type="button" class="btn btn-danger sv-btn" data-sv-delete="'+esc(s.id)+'">Excluir</button>'
+      +'</div></div>'
+  ).join('');
+  box.innerHTML='<div class="sv-service-list">'+(rows||'<p>Nenhum serviço cadastrado.</p>')+'</div>'
+    +'<div id="svEditBox" class="sv-edit-box hidden">'
+      +'<h3 style="color:var(--gold);margin:0 0 12px">Editar serviço</h3>'
+      +'<label for="svEditName">Nome do serviço</label>'
+      +'<input id="svEditName" maxlength="80" autocomplete="off" placeholder="Nome do serviço">'
+      +'<div class="row-flex" style="margin-top:12px">'
+      +'<div><label for="svEditPrice">Preço (R$)</label><input id="svEditPrice" type="text" inputmode="decimal" placeholder="Ex.: 25,00"></div>'
+      +'<div><label for="svEditDur">Duração (min)</label><input id="svEditDur" type="number" min="5" max="240" step="1" placeholder="Ex.: 40"></div>'
+      +'</div><div class="sv-edit-actions">'
+      +'<button type="button" class="btn btn-gold" id="svEditSave" onclick="saveServiceEdit()">SALVAR ALTERAÇÕES</button>'
+      +'<button type="button" class="btn btn-outline" onclick="cancelServiceEdit()">CANCELAR</button>'
+      +'</div><div id="svEditErr" role="status" aria-live="polite"></div></div>'
     +'<h3 style="color:var(--gold);margin:30px 0 4px">Adicionar serviço</h3>'
-    +'<div class="row-flex"><input id="svName" placeholder="Nome do serviço"><input id="svPrice" type="number" step="0.01" placeholder="Preço (R$)"><input id="svDur" type="number" placeholder="Duração (min)"></div>'
-    +'<br><button class="btn btn-gold" onclick="addService()">ADICIONAR</button><div id="svErr"></div>';
+    +'<div class="row-flex"><input id="svName" maxlength="80" placeholder="Nome do serviço"><input id="svPrice" type="number" min="0" max="10000" step="0.01" placeholder="Preço (R$)"><input id="svDur" type="number" min="5" max="240" step="1" placeholder="Duração (min)"></div>'
+    +'<br><button type="button" class="btn btn-gold" onclick="addService()">ADICIONAR</button><div id="svErr" role="status" aria-live="polite"></div>';
+  box.onclick=function(event){
+    const edit=event.target.closest('[data-sv-edit]');
+    if(edit&&box.contains(edit)){editService(edit.getAttribute('data-sv-edit'));return;}
+    const del=event.target.closest('[data-sv-delete]');
+    if(del&&box.contains(del)){delService(del.getAttribute('data-sv-delete'));}
+  };
 }
 async function addService(){
-  const n=document.getElementById('svName').value.trim(),p=parseFloat(document.getElementById('svPrice').value),d=parseInt(document.getElementById('svDur').value);
+  const n=document.getElementById('svName').value.trim(),p=Number(document.getElementById('svPrice').value),d=Number(document.getElementById('svDur').value);
   const err=document.getElementById('svErr');
-  if(!n||!(p>0)||!(d>0)){err.innerHTML='<div class="notice err" style="margin-top:12px">Preencha nome, preço e duração válidos.</div>';return;}
+  if(!n||n.length>80||!Number.isFinite(p)||p<0||p>10000||!Number.isInteger(d)||d<5||d>240){err.innerHTML='<div class="notice err" style="margin-top:12px">Informe nome, preço entre R$ 0 e R$ 10.000 e duração de 5 a 240 minutos.</div>';return;}
   try{
     const fresh=await getSv();
     const novo=[...fresh,{id:Date.now(),name:n,price:p,dur:d}];
     await dbPut('/services',novo);
     services=novo;
-    renderTabSv();renderPublic();
-    err.innerHTML='<div class="notice ok" style="margin-top:12px">Serviço adicionado!</div>';
-  }catch(e){netErr();}
+    renderTabSv();renderPublic();renderSlots();
+    document.getElementById('svErr').innerHTML='<div class="notice ok" style="margin-top:12px">Serviço adicionado!</div>';
+  }catch(e){err.innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível salvar. Verifique a conexão e as permissões do Firebase.</div>';}
 }
-async function editService(id){
-  const s=services.find(x=>x.id==id);if(!s)return;
-  const np=prompt('Novo preço de "'+s.name+'" (R$):',s.price);
-  if(np===null)return;
-  const nd=prompt('Nova duração de "'+s.name+'" em minutos:',s.dur);
-  if(nd===null)return;
-  const p=parseFloat(np),d=parseInt(nd);
-  if(!(p>0)||!(d>=5)){alert('Valores inválidos. Preço maior que zero e duração de pelo menos 5 minutos.');return;}
+let svEditId=null,svSaving=false;
+function editService(id){
+  const s=services.find(x=>String(x.id)===String(id));
+  if(!s)return;
+  svEditId=String(s.id);
+  document.getElementById('svEditName').value=String(s.name);
+  document.getElementById('svEditPrice').value=Number(s.price).toFixed(2).replace('.',',');
+  document.getElementById('svEditDur').value=s.dur;
+  document.getElementById('svEditErr').innerHTML='';
+  const box=document.getElementById('svEditBox');
+  box.classList.remove('hidden');
+  box.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function cancelServiceEdit(){
+  if(svSaving)return;
+  svEditId=null;
+  document.getElementById('svEditBox').classList.add('hidden');
+  document.getElementById('svEditErr').innerHTML='';
+}
+async function saveServiceEdit(){
+  if(svSaving||svEditId===null)return;
+  const err=document.getElementById('svEditErr');
+  const name=document.getElementById('svEditName').value.trim();
+  const raw=document.getElementById('svEditPrice').value.trim().replace(',', '.');
+  const price=Number(raw),dur=Number(document.getElementById('svEditDur').value);
+  if(!name||name.length>80||!/^\d+(\.\d{1,2})?$/.test(raw)||!Number.isFinite(price)||price>10000||!Number.isInteger(dur)||dur<5||dur>240){
+    err.innerHTML='<div class="notice err" style="margin-top:12px">Informe nome válido, preço entre R$ 0 e R$ 10.000 (até 2 casas decimais) e duração de 5 a 240 minutos.</div>';
+    return;
+  }
+  const button=document.getElementById('svEditSave');
+  svSaving=true;button.disabled=true;button.textContent='SALVANDO...';
   try{
     const fresh=await getSv();
-    const novo=fresh.map(x=>x.id===id?{...x,price:p,dur:d}:x);
+    if(!fresh.some(x=>String(x.id)===svEditId))throw new Error('Serviço não encontrado no Firebase. Atualize a página.');
+    const novo=fresh.map(x=>String(x.id)===svEditId?{...x,name,price,dur}:x);
     await dbPut('/services',novo);
     services=novo;
+    svEditId=null;
     renderTabSv();renderPublic();renderSlots();
-    alert('Serviço atualizado! Novos agendamentos já usam o novo tempo.');
-  }catch(e){netErr();}
+    document.getElementById('svErr').innerHTML='<div class="notice ok" style="margin-top:12px">Serviço atualizado! Os agendamentos existentes foram preservados.</div>';
+  }catch(e){
+    err.innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível salvar: '+esc(e&&e.message||'verifique o Firebase')+'. Nenhuma alteração local foi confirmada.</div>';
+  }finally{
+    svSaving=false;
+    if(button.isConnected){button.disabled=false;button.textContent='SALVAR ALTERAÇÕES';}
+  }
 }
 async function delService(id){
-  if(!confirm('Excluir este serviço?'))return;
+  if(!confirm('Excluir este serviço? Agendamentos já realizados não serão excluídos.'))return;
   try{
     const fresh=await getSv();
-    const novo=fresh.filter(s=>s.id!==id);
+    const novo=fresh.filter(s=>String(s.id)!==String(id));
     await dbPut('/services',novo);
     services=novo;
     renderTabSv();renderPublic();renderSlots();
   }catch(e){netErr();}
 }
-
 function renderTabHr(){
   const box=document.getElementById('tab-hr');
   const H=(Array.isArray(cfg.hours)&&cfg.hours.length===7)?cfg.hours:[];
@@ -1014,7 +1080,7 @@ function renderTabHr(){
   }).join('');
   box.innerHTML='<div class="notice info">Configure um único período de atendimento por dia. Segunda a sexta: <b>18:30 às 22:30</b>. Sábado: <b>13:00 às 17:30</b>. Domingo: fechado. Não há campos separados para manhã e tarde.</div>'
     +checks
-    +'<div class="row-flex" style="margin-top:14px"><div><label style="margin-top:0">Intervalo entre horários (min)</label><input type="number" id="hrSlot" value="20" disabled style="opacity:0.6" min="10" step="5"></div></div>'
+    +'<div class="row-flex" style="margin-top:14px"><div><label style="margin-top:0" for="hrSlot">Intervalo da grade (min)</label><input type="number" id="hrSlot" value="'+esc(cfg.slotMin||20)+'" min="5" max="120" step="5" inputmode="numeric"><small style="display:block;color:var(--muted);font-size:12px;margin-top:4px">Ex.: 10, 20 ou 30. O sistema respeita a duração de cada serviço.</small></div></div>'
     +'<br><button class="btn btn-gold" onclick="saveHours()">SALVAR HORÁRIOS</button>'
     +'<div style="margin-top:16px"><button class="btn btn-outline" onclick="applyRequestedHours()">APLICAR SEG–SEX 18:30–22:30 / SÁB 13:00–17:30</button></div>'
     +'<div id="hrMsg" role="status" aria-live="polite"></div>';
@@ -1034,6 +1100,11 @@ async function applyRequestedHours(){
 async function saveHours(){
   const out=document.getElementById('hrMsg');
   if(!admOk||!adminTok){if(out)out.textContent='Faça login para salvar os horários.';return;}
+  const intervalo=Number(document.getElementById('hrSlot').value);
+  if(!Number.isInteger(intervalo)||intervalo<5||intervalo>120||intervalo%5!==0){
+    out.innerHTML='<div class="notice err" style="margin-top:12px">Escolha um intervalo entre 5 e 120 minutos, em múltiplos de 5.</div>';
+    return;
+  }
   const H=[],dias=[];
   for(let i=0;i<7;i++){
     const ativo=!!document.getElementById('day'+i).checked;
@@ -1054,7 +1125,7 @@ async function saveHours(){
     delete fresh.password;
     fresh.days=dias;
     fresh.hours=H;
-    fresh.slotMin=20;
+    fresh.slotMin=intervalo;
     fresh.start='18:30';fresh.end='22:30';
     await dbPut('/cfg',fresh);
     cfg=fresh;
@@ -1273,7 +1344,21 @@ function checkNewBk(){
   });
 }
 updateNotifBtn();
-if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+let larissaInstallPrompt=null;
+window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();larissaInstallPrompt=e;});
+window.addEventListener('appinstalled',function(){larissaInstallPrompt=null;});
+async function installLarissaApp(){
+  if(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches){
+    alert('Este site já está aberto como aplicativo.');return;
+  }
+  if(larissaInstallPrompt){
+    const prompt=larissaInstallPrompt;larissaInstallPrompt=null;
+    try{prompt.prompt();await prompt.userChoice;}catch(e){console.warn('[instalação] falha',e);}
+    return;
+  }
+  alert('No Android, abra o site no Google Chrome, toque no menu de três pontos (⋮) e escolha "Adicionar à tela inicial" ou "Instalar app". Se já estiver no Chrome, procure a opção no menu do navegador.');
+}
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('[sw]',e)));
 /* Firebase Realtime Database REST Streaming: atualização ao publicar novo agendamento.
    Polling a cada 30 s continua como fallback caso a conexão SSE seja bloqueada. */
 let bookingStream=null, streamRetry=null, streamRetryCount=0;
