@@ -119,7 +119,7 @@ header{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(23,23,23,
 .cal-day.sel{background:var(--gold);color:#fff;border-color:var(--gold)}
 .cal-day.sel small{color:#fff}
 .cal-day.today{outline:2px solid var(--gold);outline-offset:1px}
-.cal-day.closed,.cal-day.past{opacity:.35;cursor:not-allowed;text-decoration:line-through;background:#F5EEE3}
+.cal-day.closed,.cal-day.past,.cal-day.full{opacity:.35;cursor:not-allowed;text-decoration:line-through;background:#F5EEE3}
 .cal-day.empty{border:none;background:transparent;cursor:default}
 .cal-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
 .cal-legend i{display:inline-block;width:12px;height:12px;border-radius:4px;border:1px solid var(--line);vertical-align:middle;margin-right:4px}
@@ -297,7 +297,7 @@ html,body{overflow-x:hidden}
         <button type="button" id="calNext" onclick="calNext()">Próximo ›</button>
       </div>
       <div class="cal-grid" id="bkCalendar"></div>
-      <div class="cal-legend"><span><i style="background:#fff"></i> Aberto</span><span><i style="background:#F5EEE3"></i> Fechado / passado</span><span><i style="background:var(--gold)"></i> Selecionado</span></div>
+      <div class="cal-legend"><span><i style="background:#fff"></i> Aberto</span><span><i style="background:#F5EEE3"></i> Fechado / passado</span><span><i style="background:#F5EEE3"></i> Sem vagas para este serviço</span><span><i style="background:var(--gold)"></i> Selecionado</span></div>
       <p class="cal-hint" id="calHint">Mostrando todos os dias abertos. Use Próximo para ver os próximos meses.</p>
       <select id="bkDate" onchange="renderSlots()" style="display:none"><option value="">Selecione a data</option></select>
       <label>Horário disponível</label>
@@ -335,7 +335,6 @@ html,body{overflow-x:hidden}
     <p id="footAddr" style="display:none"></p>
     <p style="margin-top:8px"><a id="footMap" href="#" target="_blank" rel="noopener" style="display:none">📍 Como chegar no Google Maps</a></p>
 
-    <p style="margin-top:18px"><button type="button" class="btn btn-outline" style="font-size:14px;padding:10px 16px" onclick="installLarissaApp()">📱 Adicionar à tela inicial</button></p>
     <p style="margin-top:18px">© 2026 Larissa Assis — Especialista em Unhas. Todos os direitos reservados.</p>
   </div>
 </footer>
@@ -651,8 +650,13 @@ function renderCalendar(){
       const label=isPast?'Passado':isBeyond?'Fora do período':'Fechado';
       h+='<div class="cal-day '+(isPast?'past':'closed')+'"><span>'+day+'</span><small>'+label+'</small></div>';
     } else {
-      const isSel=sel===iso, isToday=iso===isoDate(today);
-      h+='<div class="cal-day open'+(isSel?' sel':'')+(isToday?' today':'')+'" onclick="calSelect(\''+iso+'\')"><span>'+day+'</span><small>'+(isToday?'Hoje':WD[d.getDay()])+'</small></div>';
+      const selectedService=svc(document.getElementById('bkService').value);
+      if(publicDataReady && selectedService && !hasFreeSlotOnDate(iso,selectedService)){
+        h+='<div class="cal-day full" title="Sem vagas para este serviço" aria-disabled="true"><span>'+day+'</span><small>Sem vagas</small></div>';
+      } else {
+        const isSel=sel===iso, isToday=iso===isoDate(today);
+        h+='<div class="cal-day open'+(isSel?' sel':'')+(isToday?' today':'')+'" onclick="calSelect(\''+iso+'\')"><span>'+day+'</span><small>'+(isToday?'Hoje':WD[d.getDay()])+'</small></div>';
+      }
     }
   }
   box.innerHTML=h;
@@ -675,44 +679,53 @@ function calSelect(iso){
   const d=document.getElementById('bkDate');if(!d)return;
   /* garante que a data existe nas opções (só dia aberto dentro do período) */
   if(!Array.from(d.options).some(o=>o.value===iso))return;
-  d.value=iso;renderCalendar();renderSlots();
+  const selectedService=svc(document.getElementById('bkService').value);
+  if(publicDataReady && selectedService && !hasFreeSlotOnDate(iso,selectedService))return;
+  d.value=iso;renderSlots();
 }
 function closeMenu(){document.getElementById('navLinks').classList.remove('open')}
 
 /* ============ SLOTS ============ */
 let selSlot=null;
+/* Mesma lógica de grade para o calendário e os botões de horário.
+   Evita anunciar um dia livre quando nenhum horário pode acomodar o serviço. */
+function slotGridForDate(date,service){
+  if(!isOpenOn(date)||!service||!(Number(service.dur)>0))return [];
+  const ranges=rangesForDate(date); /* horário semanal OU horário especial */
+  const dayBk=(bookings||[]).filter(b=>b&&b.date===date&&!isNaN(toMin(b.time||''))&&b.dur>0);
+  const grade=Number(cfg.slotMin);
+  const step=(Number.isInteger(grade)&&grade>=5&&grade<=120&&grade%5===0)?grade:20;
+  const grid=[];
+  let blockUntil=-1;
+  const ehHoje=date===todayISO();
+  const agora=new Date();
+  const agoraMin=agora.getHours()*60+agora.getMinutes();
+  for(const rg of ranges){
+    for(let t=rg[0];t<=rg[1];t+=step){
+      if(t+Number(service.dur)>rg[1])break; /* o serviço precisa caber inteiro */
+      const hit=dayBk.some(b=>overlaps(t,t+Number(service.dur),toMin(b.time),toMin(b.time)+Number(b.dur)));
+      const passou=ehHoje&&t<=agoraMin;
+      const off=hit||t<blockUntil||passou;
+      if(!off)blockUntil=t+Number(service.dur);
+      grid.push({t,off,hit});
+    }
+  }
+  return grid;
+}
+function hasFreeSlotOnDate(date,service){
+  return slotGridForDate(date,service).some(g=>!g.off);
+}
+
 function renderSlots(){
   const box=document.getElementById('slots');
   const prevSel=selSlot; /* guarda a escolha do cliente para não perder ao atualizar */
   box.innerHTML='';selSlot=null;
   const date=document.getElementById('bkDate').value;
+  renderCalendar(); /* vagas atualizadas após trocar serviço ou sincronizar a agenda */
   if(!date){box.innerHTML='<p class="slot-empty">Selecione uma data para ver os horários.</p>';return;}
   if(!isOpenOn(date)){box.innerHTML='<p class="slot-empty">⛔ Não atendemos neste dia. Escolha outra data.</p>';return;}
   const s=svc(document.getElementById('bkService').value)||{dur:40,name:'Manicure'};
-  const ranges=rangesForDate(date); /* horário semanal OU horário especial */
-  const dayBk=(bookings||[]).filter(b=>b&&b.date===date&&!isNaN(toMin(b.time||''))&&b.dur>0);
-  /* GRADE CONFIGURÁVEL: avanço definido pela profissional em cfg.slotMin.
-     blockUntil impede opções que se sobreponham, mesmo que o passo
-     configurado seja menor que a duração do serviço. */
-  const grade=Number(cfg.slotMin);
-  const step=(Number.isInteger(grade)&&grade>=5&&grade<=120&&grade%5===0)?grade:20;
-  /* monta a grade primeiro, depois calcula as estrelas */
-  const grid=[];
-  let blockUntil=-1; /* fim do último horário aceito: impede que dois horários oferecidos se sobreponham */
-  const ehHoje=date===todayISO();
-  const agora=new Date();
-  const agoraMin=agora.getHours()*60+agora.getMinutes(); /* horário de agora em minutos */
-  for(const rg of ranges){
-    for(let t=rg[0];t<=rg[1];t+=step){
-      if(t+s.dur>rg[1])break; /* ⛔ o serviço precisa terminar antes do fim do período */
-      /* riscado se: encosta em um agendamento existente OU começa antes do fim do horário anterior oferecido */
-      const hit=dayBk.some(b=>overlaps(t,t+s.dur,toMin(b.time),toMin(b.time)+b.dur));
-      const passou=ehHoje&&t<=agoraMin; /* ⛔ hoje: horário que já passou não pode ser marcado */
-      const off=hit||t<blockUntil||passou;
-      if(!off)blockUntil=t+s.dur;
-      grid.push({t,off,hit});
-    }
-  }
+  const grid=slotGridForDate(date,s);
   if(!grid.length){box.innerHTML='<p class="slot-empty">⛔ Não atendemos neste dia. Escolha outra data.</p>';return;}
   let any=false;
   grid.forEach(g=>{
@@ -1208,7 +1221,7 @@ function renderTabHr(){
     +'<label for="spDate">Data</label><input type="date" id="spDate" min="'+todayISO()+'" onchange="onSpecialDateChange()">'
     +'<label for="spMode">O que deseja fazer?</label><select id="spMode" onchange="specialModeChanged()">'
     +'<option value="closed">Fechar o dia inteiro</option><option value="open">Abrir com horário especial</option></select>'
-    +'<div id="spTimeFields" class="hidden" style="margin:12px 0;display:none">'
+    +'<div id="spTimeFields" style="margin:12px 0;display:none">'
     +'<label for="spStart">Início</label><input id="spStart" type="time" value="13:00">'
     +'<label for="spEnd">Término</label><input id="spEnd" type="time" value="17:30"></div>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">'
@@ -1381,7 +1394,8 @@ function renderTabCfg(){
     +'<hr style="border:none;border-top:1px solid #333;margin:24px 0 16px">'
     +'<label>Backup da agenda</label>'
     +'<small style="color:var(--muted)">Uma cópia da agenda é guardada sozinha 1 vez por dia (ficam os últimos 14 dias).</small>'
-    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0"><button class="btn btn-outline" style="padding:10px 18px;font-size:14px" onclick="backupNow()">💾 Salvar backup agora</button><button class="btn btn-outline" style="padding:10px 18px;font-size:14px" onclick="listBackups()">📋 Ver backups</button></div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0"><button class="btn btn-outline" style="padding:10px 18px;font-size:14px" onclick="backupNow()">💾 Salvar backup agora</button><button class="btn btn-gold" style="padding:10px 18px;font-size:14px" id="bkpDownloadNow" onclick="downloadBackupNow()">⬇️ Baixar backup atualizado</button><button class="btn btn-outline" style="padding:10px 18px;font-size:14px" onclick="listBackups()">📋 Ver backups</button></div>'
+    +'<small style="color:var(--muted)">O download salva um arquivo JSON com os dados atuais no seu aparelho. Ele contém nomes e telefones dos clientes: mantenha o arquivo protegido. Não apaga nem modifica a agenda.</small>'
     +'<div id="bkpMsg"></div><div id="bkpList"></div>';
   updateNotifBtn();
 }
@@ -1455,6 +1469,56 @@ async function backupNow(){
     listBackups();
   }catch(e){netErr();}
 }
+/* Download manual de backup: leitura apenas, sem apagar ou escrever no Firebase.
+   Usa os registros originais para não descartar agendamentos legados ou campos extras. */
+function downloadBackupFile(data,filename){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url;link.download=filename;link.style.display='none';
+  document.body.appendChild(link);
+  try{link.click();}finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+}
+function backupFilename(suffix){
+  const d=new Date(),pad=v=>String(v).padStart(2,'0');
+  return 'larissa-assis-backup-'+d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'_'+pad(d.getHours())+'-'+pad(d.getMinutes())+'-'+pad(d.getSeconds())+(suffix?'-'+suffix:'')+'.json';
+}
+async function downloadBackupNow(){
+  const msg=document.getElementById('bkpMsg'),btn=document.getElementById('bkpDownloadNow');
+  if(!admOk||!adminTok){if(msg)msg.textContent='Entre com a senha para baixar o backup.';return;}
+  if(btn){btn.disabled=true;btn.textContent='Preparando backup…';}
+  try{
+    /* Três leituras autenticadas, sem mudanças em /bookings, /slots ou /taken. */
+    const [bk,sv,cf]=await Promise.all([dbGet('/bookings'),dbGet('/services'),dbGet('/cfg')]);
+    if(bk===undefined||sv===undefined||cf===undefined)throw new Error('Falha ao ler os dados no Firebase. Verifique sua conexão e seu login.');
+    const safeCfg=cf&&typeof cf==='object'?{...cf}:{};
+    delete safeCfg.password; /* nenhuma senha deve entrar na cópia */
+    const dados={at:new Date().toISOString(),n:Object.values(bk||{}).filter(x=>x!==null).length,
+      bookings:bk||{},services:sv||{},cfg:safeCfg};
+    downloadBackupFile(dados,backupFilename('atual'));
+    if(msg)msg.innerHTML='<div class="notice ok">Download iniciado. Confira a pasta Downloads e guarde o arquivo em local seguro.</div>';
+  }catch(e){
+    if(msg)msg.innerHTML='<div class="notice err">'+esc(e&&e.message||'Não foi possível baixar o backup.')+'</div>';
+  }finally{if(btn){btn.disabled=false;btn.textContent='⬇️ Baixar backup atualizado';}}
+}
+async function downloadSavedBackup(k){
+  const msg=document.getElementById('bkpMsg');
+  if(!admOk||!adminTok||!bkpKeyOk(k))return;
+  try{
+    const data=await dbGet('/backups/'+k);
+    if(data===undefined)throw new Error('Sem acesso ao backup. Verifique sua conexão e sessão.');
+    if(!data||typeof data!=='object')throw new Error('Backup não encontrado no Firebase.');
+    const exportData={...data};
+    if(exportData.cfg&&typeof exportData.cfg==='object'){
+      exportData.cfg={...exportData.cfg};delete exportData.cfg.password;
+    }
+    downloadBackupFile(exportData,backupFilename(k));
+    if(msg)msg.innerHTML='<div class="notice ok">Download da cópia '+esc(bkpLabel(k))+' iniciado. Confira a pasta Downloads.</div>';
+  }catch(e){
+    if(msg)msg.innerHTML='<div class="notice err">'+esc(e&&e.message||'Erro ao baixar backup.')+'</div>';
+  }
+}
+
 async function listBackups(){
   const box=document.getElementById('bkpList');if(!box)return;
   box.innerHTML='<small style="color:var(--muted)">Carregando…</small>';
@@ -1467,7 +1531,8 @@ async function listBackups(){
     const n=await dbGet('/backups/'+k+'/n');
     html+='<div class="card" style="padding:12px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
       +'<div><b style="color:var(--gold)">'+esc(bkpLabel(k))+'</b><br><span style="color:var(--muted);font-size:13px">'+(typeof n==='number'?n:'?')+' agendamento(s)</span></div>'
-      +'<button class="btn btn-danger" onclick="restoreBackup(\''+k+'\')">Restaurar</button></div>';
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-outline" onclick="downloadSavedBackup(\''+k+'\')">⬇️ Baixar</button>'
+      +'<button class="btn btn-danger" onclick="restoreBackup(\''+k+'\')">Restaurar</button></div></div>';
   }
   box.innerHTML=html;
 }
@@ -1566,20 +1631,6 @@ function checkNewBk(){
   });
 }
 updateNotifBtn();
-let larissaInstallPrompt=null;
-window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();larissaInstallPrompt=e;});
-window.addEventListener('appinstalled',function(){larissaInstallPrompt=null;});
-async function installLarissaApp(){
-  if(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches){
-    alert('Este site já está aberto como aplicativo.');return;
-  }
-  if(larissaInstallPrompt){
-    const prompt=larissaInstallPrompt;larissaInstallPrompt=null;
-    try{prompt.prompt();await prompt.userChoice;}catch(e){console.warn('[instalação] falha',e);}
-    return;
-  }
-  alert('No Android, abra o site no Google Chrome, toque no menu de três pontos (⋮) e escolha "Adicionar à tela inicial" ou "Instalar app". Se já estiver no Chrome, procure a opção no menu do navegador.');
-}
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('[sw]',e)));
 /* Firebase Realtime Database REST Streaming: atualização ao publicar novo agendamento.
    Polling a cada 30 s continua como fallback caso a conexão SSE seja bloqueada. */
