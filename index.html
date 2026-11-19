@@ -460,10 +460,35 @@ async function dbPut(path,val){
   if(!r.ok)throw new Error('Falha ao salvar');
   return r.json();
 }
+/* Serviços são salvos por chave no Realtime Database. Alguns bancos antigos
+   têm array (índices 0,1,2), outros têm objeto e alguns registros não têm id.
+   Normalizar a leitura sem sobrescrever nem eliminar nenhum outro registro. */
+function serviceRecords(raw){
+  const all=Array.isArray(raw)?raw.map((v,i)=>[String(i),v]):Object.entries(raw&&typeof raw==='object'?raw:{});
+  return all.filter(([k,v])=>v&&typeof v==='object'&&v.name&&String(v.name).trim())
+    .map(([key,v])=>({key,value:v,service:{...v,id:v.id===undefined||v.id===null?key:v.id}}));
+}
 async function getSv(){
-  const l=await dbGet('/services');
-  if(l===undefined)throw new Error('offline');
-  return Array.isArray(l)?l.filter(Boolean):(l?Object.values(l).filter(Boolean):[]);
+  const raw=await dbGet('/services');
+  if(raw===undefined)throw new Error('Não foi possível consultar os serviços no Firebase.');
+  return serviceRecords(raw).map(x=>x.service);
+}
+/* As gravações condicionais evitam sobrescrever outra alteração simultânea.
+   if-match/ETag: mecanismo transacional oficial do Realtime Database REST. */
+async function serviceSnapshot(path){
+  const response=await fetch(await dbUrl(path),{method:'GET',headers:{'X-Firebase-ETag':'true'},cache:'no-store'});
+  if(!response.ok)throw new Error('Não foi possível consultar os serviços (HTTP '+response.status+').');
+  const etag=response.headers.get('ETag');
+  if(!etag)throw new Error('O Firebase não retornou a confirmação de versão. Nada foi modificado.');
+  return {value:await response.json(),etag};
+}
+async function servicePutIfUnchanged(path,value,etag){
+  const response=await fetch(await dbUrl(path),{
+    method:'PUT',headers:{'Content-Type':'application/json','if-match':etag},body:JSON.stringify(value)
+  });
+  if(response.status===412)throw new Error('Os serviços foram alterados em outra sessão. Atualize a página e tente novamente.');
+  if(!response.ok)throw new Error('O Firebase recusou a gravação (HTTP '+response.status+'). Confira as regras e sua sessão.');
+  return response.json();
 }
 function netErr(){alert('Sem conexão com a internet agora. Tente novamente em instantes.');}
 
@@ -520,8 +545,7 @@ async function boot(){
   if(c===undefined||sv===undefined){publicDataReady=false;renderPublic();renderSlots();return;}
   if(c&&typeof c==='object'){cfg={...cfg,...c};delete cfg.password;}
   publicDataReady=true;
-  const sl=Array.isArray(sv)?sv:Object.values(sv||{});
-  const slOk=sl.filter(Boolean).filter(x=>x&&x.name&&String(x.name).trim());
+  const slOk=serviceRecords(sv).map(x=>x.service);
   if(slOk.length)services=slOk;
   try{bookings=await getBk();}catch(e){publicDataReady=false;}
   renderPublic();renderSlots();
@@ -993,24 +1017,40 @@ function renderTabSv(){
     if(del&&box.contains(del)){delService(del.getAttribute('data-sv-delete'));}
   };
 }
+let svAdding=false;
 async function addService(){
+  if(svAdding)return;
   const n=document.getElementById('svName').value.trim(),p=Number(document.getElementById('svPrice').value),d=Number(document.getElementById('svDur').value);
   const err=document.getElementById('svErr');
   if(!n||n.length>80||!Number.isFinite(p)||p<0||p>10000||!Number.isInteger(d)||d<5||d>240){err.innerHTML='<div class="notice err" style="margin-top:12px">Informe nome, preço entre R$ 0 e R$ 10.000 e duração de 5 a 240 minutos.</div>';return;}
+  svAdding=true;
   try{
-    const fresh=await getSv();
-    const novo=[...fresh,{id:Date.now(),name:n,price:p,dur:d}];
-    await dbPut('/services',novo);
-    services=novo;
+    const id='sv-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,9);
+    const current=await serviceSnapshot('/services');
+    const empty=current.value===null||(typeof current.value==='object'&&current.value!==null&&Object.keys(current.value).length===0);
+    if(empty){
+      /* Preserva os três serviços mostrados como padrão no primeiro uso. */
+      const initial=services.map(s=>({id:s.id,name:String(s.name),price:Number(s.price),dur:Number(s.dur)}));
+      initial.push({id,name:n,price:p,dur:d});
+      await servicePutIfUnchanged('/services',initial,current.etag);
+      services=initial;
+    }else{
+      /* POST adiciona só um serviço, sem substituir os já cadastrados. */
+      const r=await fetch(await dbUrl('/services'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name:n,price:p,dur:d})});
+      if(!r.ok)throw new Error('Gravação recusada (HTTP '+r.status+').');
+      services=await getSv();
+    }
     renderTabSv();renderPublic();renderSlots();
     document.getElementById('svErr').innerHTML='<div class="notice ok" style="margin-top:12px">Serviço adicionado!</div>';
-  }catch(e){err.innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível salvar. Verifique a conexão e as permissões do Firebase.</div>';}
+  }catch(e){err.innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível adicionar: '+esc(e.message||'verifique o Firebase')+'</div>';}
+  finally{svAdding=false;}
 }
-let svEditId=null,svSaving=false;
+let svEditId=null,svSaving=false,svEditBase=null;
 function editService(id){
   const s=services.find(x=>String(x.id)===String(id));
   if(!s)return;
   svEditId=String(s.id);
+  svEditBase={name:String(s.name),price:Number(s.price),dur:Number(s.dur)};
   document.getElementById('svEditName').value=String(s.name);
   document.getElementById('svEditPrice').value=Number(s.price).toFixed(2).replace('.',',');
   document.getElementById('svEditDur').value=s.dur;
@@ -1021,7 +1061,7 @@ function editService(id){
 }
 function cancelServiceEdit(){
   if(svSaving)return;
-  svEditId=null;
+  svEditId=null;svEditBase=null;
   document.getElementById('svEditBox').classList.add('hidden');
   document.getElementById('svEditErr').innerHTML='';
 }
@@ -1031,23 +1071,46 @@ async function saveServiceEdit(){
   const name=document.getElementById('svEditName').value.trim();
   const raw=document.getElementById('svEditPrice').value.trim().replace(',', '.');
   const price=Number(raw),dur=Number(document.getElementById('svEditDur').value);
-  if(!name||name.length>80||!/^\d+(\.\d{1,2})?$/.test(raw)||!Number.isFinite(price)||price>10000||!Number.isInteger(dur)||dur<5||dur>240){
+  if(!name||name.length>80||!/^[0-9]+(\.[0-9]{1,2})?$/.test(raw)||!Number.isFinite(price)||price>10000||!Number.isInteger(dur)||dur<5||dur>240){
     err.innerHTML='<div class="notice err" style="margin-top:12px">Informe nome válido, preço entre R$ 0 e R$ 10.000 (até 2 casas decimais) e duração de 5 a 240 minutos.</div>';
     return;
   }
   const button=document.getElementById('svEditSave');
   svSaving=true;button.disabled=true;button.textContent='SALVANDO...';
   try{
-    const fresh=await getSv();
-    if(!fresh.some(x=>String(x.id)===svEditId))throw new Error('Serviço não encontrado no Firebase. Atualize a página.');
-    const novo=fresh.map(x=>String(x.id)===svEditId?{...x,name,price,dur}:x);
-    await dbPut('/services',novo);
-    services=novo;
-    svEditId=null;
+    const snapshot=await serviceSnapshot('/services');
+    const rows=serviceRecords(snapshot.value);
+    const found=rows.find(x=>String(x.service.id)===svEditId);
+    let updated;
+    if(!found){
+      /* Cenário da captura: os serviços padrão aparecem na tela, mas /services
+         está vazio. Só é permitido iniciar os padrões quando o nó está vazio;
+         If-Match impede apagar registros adicionados por outra sessão. */
+      const empty=snapshot.value===null||(typeof snapshot.value==='object'&&snapshot.value!==null&&Object.keys(snapshot.value).length===0);
+      if(!empty||rows.length)throw new Error('O serviço mudou ou não está no Firebase. Atualize a página; nenhum registro foi substituído.');
+      const defaults=services.map(s=>({id:s.id,name:String(s.name),price:Number(s.price),dur:Number(s.dur)}));
+      const target=defaults.find(x=>String(x.id)===svEditId);
+      if(!target)throw new Error('Serviço não localizado na lista inicial.');
+      Object.assign(target,{name,price,dur});
+      await servicePutIfUnchanged('/services',defaults,snapshot.etag);
+      updated=defaults;
+    }else{
+      const latest=await serviceSnapshot('/services/'+encodeURIComponent(found.key));
+      const v=latest.value;
+      if(!v||typeof v!=='object'||String(v.id===undefined||v.id===null?found.key:v.id)!==svEditId)
+        throw new Error('O serviço foi alterado no Firebase. Atualize a página e tente novamente.');
+      if(svEditBase&&(String(v.name)!==svEditBase.name||Number(v.price)!==svEditBase.price||Number(v.dur)!==svEditBase.dur))
+        throw new Error('Este serviço foi alterado em outra sessão. Atualize a página antes de salvar.');
+      const changed={...v,name,price,dur};
+      await servicePutIfUnchanged('/services/'+encodeURIComponent(found.key),changed,latest.etag);
+      updated=rows.map(x=>String(x.service.id)===svEditId?{...x.service,...changed}:x.service);
+    }
+    services=updated;
+    svEditId=null;svEditBase=null;
     renderTabSv();renderPublic();renderSlots();
-    document.getElementById('svErr').innerHTML='<div class="notice ok" style="margin-top:12px">Serviço atualizado! Os agendamentos existentes foram preservados.</div>';
+    document.getElementById('svErr').innerHTML='<div class="notice ok" style="margin-top:12px">Serviço salvo no Firebase. Agendamentos existentes não foram alterados.</div>';
   }catch(e){
-    err.innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível salvar: '+esc(e&&e.message||'verifique o Firebase')+'. Nenhuma alteração local foi confirmada.</div>';
+    err.innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível salvar: '+esc(e&&e.message||'verifique o Firebase')+'</div>';
   }finally{
     svSaving=false;
     if(button.isConnected){button.disabled=false;button.textContent='SALVAR ALTERAÇÕES';}
@@ -1056,12 +1119,25 @@ async function saveServiceEdit(){
 async function delService(id){
   if(!confirm('Excluir este serviço? Agendamentos já realizados não serão excluídos.'))return;
   try{
-    const fresh=await getSv();
-    const novo=fresh.filter(s=>String(s.id)!==String(id));
-    await dbPut('/services',novo);
-    services=novo;
+    const snapshot=await serviceSnapshot('/services');
+    const found=serviceRecords(snapshot.value).find(x=>String(x.service.id)===String(id));
+    if(!found){
+      const empty=snapshot.value===null||(typeof snapshot.value==='object'&&snapshot.value!==null&&Object.keys(snapshot.value).length===0);
+      if(!empty)throw new Error('Serviço não encontrado no banco. Nada foi excluído.');
+      /* Quando há apenas serviços padrão visíveis, preserva os restantes. */
+      const remaining=services.filter(x=>String(x.id)!==String(id)).map(s=>({id:s.id,name:String(s.name),price:Number(s.price),dur:Number(s.dur)}));
+      if(!remaining.length)throw new Error('Não foi possível remover o último serviço padrão antes de cadastrar a lista no Firebase.');
+      await servicePutIfUnchanged('/services',remaining,snapshot.etag);
+      services=remaining;renderTabSv();renderPublic();renderSlots();return;
+    }
+    const latest=await serviceSnapshot('/services/'+encodeURIComponent(found.key));
+    if(!latest.value||String(latest.value.id===undefined||latest.value.id===null?found.key:latest.value.id)!==String(id))throw new Error('Serviço alterado em outra sessão.');
+    const r=await fetch(await dbUrl('/services/'+encodeURIComponent(found.key)),{method:'DELETE',headers:{'if-match':latest.etag}});
+    if(r.status===412)throw new Error('Serviço mudou em outra sessão, atualize a página.');
+    if(!r.ok)throw new Error('Firebase recusou a exclusão (HTTP '+r.status+').');
+    services=services.filter(s=>String(s.id)!==String(id));
     renderTabSv();renderPublic();renderSlots();
-  }catch(e){netErr();}
+  }catch(e){alert('Não foi possível excluir: '+(e&&e.message||'verifique a conexão'));}
 }
 function renderTabHr(){
   const box=document.getElementById('tab-hr');
