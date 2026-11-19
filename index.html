@@ -531,6 +531,38 @@ function isValidPhone(v){ const d=String(v||'').replace(/\D/g,''); if(d.length!=
 function formatPhoneInput(el){ let d=el.value.replace(/\D/g,'').slice(0,11); if(!d){el.value='';return;} if(d.length>10)el.value='('+d.slice(0,2)+') '+d.slice(2,7)+'-'+d.slice(7); else if(d.length>6)el.value='('+d.slice(0,2)+') '+d.slice(2,6)+'-'+d.slice(6); else if(d.length>2)el.value='('+d.slice(0,2)+') '+d.slice(2); else el.value=d; }
 function isValidTimeStr(t){ return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(t||'')); }
 function isValidDateStr(d){ if(!/^\d{4}-\d{2}-\d{2}$/.test(String(d||'')))return false; const x=new Date(d+'T12:00:00'); return !isNaN(x.getTime()) && x.toISOString().slice(0,10)===d; }
+
+/* EXCEÇÕES POR DATA: nunca alteram nem apagam /bookings, /slots ou /taken.
+   /cfg/specialDates/AAAA-MM-DD = {open:false} ou {open:true,start:'HH:MM',end:'HH:MM'} */
+function specialForDate(date,settings=cfg){
+  const all=settings&&settings.specialDates;
+  const v=all&&!Array.isArray(all)&&typeof all==='object'?all[date]:null;
+  if(!v||typeof v!=='object'||typeof v.open!=='boolean')return null;
+  if(v.open && (!isValidTimeStr(v.start)||!isValidTimeStr(v.end)||toMin(v.start)>=toMin(v.end)))return null;
+  return v;
+}
+function isOpenOn(date,settings=cfg){
+  if(!isValidDateStr(date))return false;
+  const sp=specialForDate(date,settings);
+  if(sp)return sp.open;
+  const dow=new Date(date+'T12:00:00').getDay();
+  const week=Array.isArray(settings.days)&&settings.days.length===7?settings.days:[false,true,true,true,true,true,true];
+  return !!week[dow];
+}
+function rangesForDate(date,settings=cfg){
+  if(!isOpenOn(date,settings))return [];
+  const sp=specialForDate(date,settings);
+  if(sp && sp.open)return [[toMin(sp.start),toMin(sp.end)]];
+  const dow=new Date(date+'T12:00:00').getDay();
+  const h=Array.isArray(settings.hours)&&settings.hours.length===7?settings.hours[dow]:null;
+  const ranges=[];
+  const add=(a,b)=>{if(!isValidTimeStr(a)||!isValidTimeStr(b))return;const start=toMin(a),end=toMin(b);if(end>start)ranges.push([start,end]);};
+  add((h&&(h.s1||h.s))||settings.start||'08:00',(h&&(h.e1||h.e))||settings.end||'18:00');
+  add(h&&h.s2,h&&h.e2);
+  return ranges;
+}
+function formatDateBR(d){return String(d).split('-').reverse().join('/');}
+
 function waClient(phone,msg){
   let n=String(phone||'').replace(/\D/g,'');
   if(!n)return '#';
@@ -577,13 +609,12 @@ function calMonthKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padSta
 function calLimitDate(){const d=new Date();d.setDate(d.getDate()+ADV()-1);return d;} /* mesmo limite de fillDates e submitBooking: hoje + ADV - 1 */
 function fillDates(){
   const d=document.getElementById('bkDate'),cur=d.value;
-  const open=(Array.isArray(cfg.days)&&cfg.days.length===7)?cfg.days:[0,1,1,1,1,1,1];
   const WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   let h='<option value="">Selecione a data</option>';
   for(let i=0;i<ADV();i++){
     const x=new Date();x.setDate(x.getDate()+i);
-    if(!open[x.getDay()])continue;
     const iso=isoDate(x);
+    if(!isOpenOn(iso))continue;
     h+='<option value="'+iso+'">'+WD[x.getDay()]+', '+iso.slice(8)+'/'+iso.slice(5,7)+(i===0?' (hoje)':'')+'</option>';
   }
   d.innerHTML=h;if(cur)d.value=cur;
@@ -598,7 +629,6 @@ function renderCalendar(){
   if(calView.y<today.getFullYear()||(calView.y===today.getFullYear()&&calView.m<today.getMonth()))calView={y:today.getFullYear(),m:today.getMonth()};
   /* se o mês exibido passou do limite, trava no mês do limite */
   if(calView.y>limit.getFullYear()||(calView.y===limit.getFullYear()&&calView.m>limit.getMonth()))calView={y:limit.getFullYear(),m:limit.getMonth()};
-  const open=(Array.isArray(cfg.days)&&cfg.days.length===7)?cfg.days:[0,1,1,1,1,1,1];
   const MONTHS=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const title=document.getElementById('calTitle');if(title)title.textContent=MONTHS[calView.m]+' de '+calView.y;
   const prev=document.getElementById('calPrev'),next=document.getElementById('calNext');
@@ -616,7 +646,7 @@ function renderCalendar(){
   for(let day=1;day<=daysInMonth;day++){
     const d=new Date(calView.y,calView.m,day);d.setHours(0,0,0,0);
     const iso=isoDate(d);
-    const isPast=d<today, isBeyond=d>limit, isClosed=!open[d.getDay()];
+    const isPast=d<today, isBeyond=d>limit, isClosed=!isOpenOn(iso);
     if(isPast||isBeyond||isClosed){
       const label=isPast?'Passado':isBeyond?'Fora do período':'Fechado';
       h+='<div class="cal-day '+(isPast?'past':'closed')+'"><span>'+day+'</span><small>'+label+'</small></div>';
@@ -657,16 +687,9 @@ function renderSlots(){
   box.innerHTML='';selSlot=null;
   const date=document.getElementById('bkDate').value;
   if(!date){box.innerHTML='<p class="slot-empty">Selecione uma data para ver os horários.</p>';return;}
-  const dow=new Date(date+'T12:00:00').getDay();
-  const daysOpen=(Array.isArray(cfg.days)&&cfg.days.length===7)?cfg.days:[1,1,1,1,1,1,0];
-  if(!daysOpen[dow]){box.innerHTML='<p class="slot-empty">⛔ Não atendemos neste dia. Escolha outra data.</p>';return;}
+  if(!isOpenOn(date)){box.innerHTML='<p class="slot-empty">⛔ Não atendemos neste dia. Escolha outra data.</p>';return;}
   const s=svc(document.getElementById('bkService').value)||{dur:40,name:'Manicure'};
-  const HrDia=(cfg.hours&&cfg.hours.length===7)?cfg.hours:null; /* períodos individuais por dia */
-  const dH=HrDia?HrDia[dow]:null;
-  const ranges=[];
-  const addR=(a,b)=>{const x=toMin(a||''),y=toMin(b||'');if(!isNaN(x)&&!isNaN(y)&&y>x)ranges.push([x,y]);};
-  addR((dH&&(dH.s1||dH.s))||cfg.start,(dH&&(dH.e1||dH.e))||cfg.end); /* período 1 (manhã) */
-  addR(dH&&dH.s2,dH&&dH.e2); /* período 2 (tarde) — opcional; o vão entre os períodos é o almoço */
+  const ranges=rangesForDate(date); /* horário semanal OU horário especial */
   const dayBk=(bookings||[]).filter(b=>b&&b.date===date&&!isNaN(toMin(b.time||''))&&b.dur>0);
   /* GRADE CONFIGURÁVEL: avanço definido pela profissional em cfg.slotMin.
      blockUntil impede opções que se sobreponham, mesmo que o passo
@@ -725,27 +748,33 @@ async function submitBooking(){
   if(date<todayISO())return fail('Não é possível agendar em datas passadas.');
   {const lim=new Date();lim.setDate(lim.getDate()+ADV()-1);if(date>isoDate(lim))return fail('Agendamento disponível apenas para os próximos '+ADV()+' dias.');}
   if(!isValidDateStr(date))return fail('Data inválida.');
-  if(!cfg.days[new Date(date+'T12:00:00').getDay()])return fail('Não atendemos neste dia da semana.');
+  if(!isOpenOn(date))return fail('Este dia está fechado. Escolha outra data.');
   if(!selSlot)return fail('Escolha um horário disponível.');
   if(!isValidName(name))return fail('Informe seu nome completo, só letras, sem números.');
   if(!isValidPhone(phone))return fail('Informe um WhatsApp válido com DDD, ex.: (75) 99999-9999.');
   if(!isValidTimeStr(selSlot))return fail('Horário inválido.');
   savingBk=true;
   /* busca a versão mais recente dos agendamentos antes de gravar */
-  let list;
-  try{list=await getBk();}catch(e){savingBk=false;netErr();return;}
+  let list,policyCfg;
+  try{
+    const [freshList,freshCfg]=await Promise.all([getBk(),dbGet('/cfg')]);
+    if(freshCfg===undefined)throw new Error('Não foi possível verificar os horários atualizados.');
+    list=freshList;
+    policyCfg=freshCfg&&typeof freshCfg==='object'?{...cfg,...freshCfg}:cfg;
+    if(freshCfg&&typeof freshCfg==='object'&&!Object.prototype.hasOwnProperty.call(freshCfg,'specialDates'))delete policyCfg.specialDates;
+  }catch(e){savingBk=false;return fail('Não foi possível verificar a agenda e os horários no Firebase. Tente novamente.');}
   const st=toMin(selSlot);
+  if(!isOpenOn(date,policyCfg)){
+    savingBk=false;
+    cfg=policyCfg;renderPublic();renderSlots();
+    return fail('Este dia acabou de ser fechado pela profissional. Escolha outra data.');
+  }
   const dowBk=new Date(date+'T12:00:00').getDay();
   if(date===todayISO()){
     const ag=new Date();
     if(st<=ag.getHours()*60+ag.getMinutes()){savingBk=false;return fail('⛔ Este horário já passou. Escolha um horário futuro.');}
   }
-  const HrBk=(cfg.hours&&cfg.hours.length===7)?cfg.hours:null;
-  const dHB=HrBk?HrBk[dowBk]:null;
-  const rangesBk=[];
-  const addRB=(a,b)=>{const x=toMin(a||''),y=toMin(b||'');if(!isNaN(x)&&!isNaN(y)&&y>x)rangesBk.push([x,y]);};
-  addRB((dHB&&(dHB.s1||dHB.s))||cfg.start,(dHB&&(dHB.e1||dHB.e))||cfg.end);
-  addRB(dHB&&dHB.s2,dHB&&dHB.e2);
+  const rangesBk=rangesForDate(date,policyCfg);
   if(!rangesBk.some(r=>st>=r[0]&&st+s.dur<=r[1])){savingBk=false;return fail('⛔ Fora do expediente deste dia (ou não cabe antes do fechamento). Escolha outro horário.');}
   if(list.some(b=>b.date===date&&overlaps(st,st+s.dur,toMin(b.time),toMin(b.time)+b.dur))){
     savingBk=false;
@@ -1172,7 +1201,23 @@ function renderTabHr(){
     +'<div class="row-flex" style="margin-top:14px"><div><label style="margin-top:0" for="hrSlot">Intervalo da grade (min)</label><input type="number" id="hrSlot" value="'+esc(cfg.slotMin||20)+'" min="5" max="120" step="5" inputmode="numeric"><small style="display:block;color:var(--muted);font-size:12px;margin-top:4px">Ex.: 10, 20 ou 30. O sistema respeita a duração de cada serviço.</small></div></div>'
     +'<br><button class="btn btn-gold" onclick="saveHours()">SALVAR HORÁRIOS</button>'
     +'<div style="margin-top:16px"><button class="btn btn-outline" onclick="applyRequestedHours()">APLICAR SEG–SEX 18:30–22:30 / SÁB 13:00–17:30</button></div>'
-    +'<div id="hrMsg" role="status" aria-live="polite"></div>';
+    +'<div id="hrMsg" role="status" aria-live="polite"></div>'
+    +'<section style="border:1px solid var(--gold);border-radius:14px;padding:18px;margin-top:28px">'
+    +'<h3 style="margin:0 0 8px">Datas específicas: abrir ou fechar</h3>'
+    +'<p style="color:var(--muted);font-size:14px;margin-bottom:14px">Escolha uma data para abrir um horário especial ou fechar o dia. Isso não altera a rotina semanal e não apaga agendamentos existentes.</p>'
+    +'<label for="spDate">Data</label><input type="date" id="spDate" min="'+todayISO()+'" onchange="onSpecialDateChange()">'
+    +'<label for="spMode">O que deseja fazer?</label><select id="spMode" onchange="specialModeChanged()">'
+    +'<option value="closed">Fechar o dia inteiro</option><option value="open">Abrir com horário especial</option></select>'
+    +'<div id="spTimeFields" class="hidden" style="margin:12px 0;display:none">'
+    +'<label for="spStart">Início</label><input id="spStart" type="time" value="13:00">'
+    +'<label for="spEnd">Término</label><input id="spEnd" type="time" value="17:30"></div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">'
+    +'<button class="btn btn-gold" onclick="saveSpecialDate()">SALVAR DATA</button>'
+    +'<button class="btn btn-outline" onclick="removeSpecialDate()">REMOVER EXCEÇÃO</button></div>'
+    +'<div id="spMsg" role="status" aria-live="polite"></div>'
+    +'<div id="spList" style="margin-top:20px"></div>'
+    +'</section>';
+  renderSpecialDates();
 }
 /* Aplica o expediente solicitado de modo explícito, somente depois do login.
    Não toca em /bookings, /slots, /taken ou /backups. */
@@ -1224,6 +1269,94 @@ async function saveHours(){
     console.error('[horários] erro ao salvar:',e);
     out.innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível salvar os horários no Firebase. Confira a conexão e a permissão do administrador.</div>';
   }
+}
+
+
+/* Gerenciamento seguro das exceções: sem alteração ou exclusão de reservas. */
+function specialModeChanged(){
+  const mode=document.getElementById('spMode');
+  const fields=document.getElementById('spTimeFields');
+  if(mode&&fields)fields.style.display=mode.value==='open'?'block':'none';
+}
+function onSpecialDateChange(){
+  const date=document.getElementById('spDate').value;
+  const sp=specialForDate(date);
+  const mode=document.getElementById('spMode');
+  if(sp&&mode){
+    mode.value=sp.open?'open':'closed';
+    if(sp.open){document.getElementById('spStart').value=sp.start;document.getElementById('spEnd').value=sp.end;}
+  }
+  specialModeChanged();
+  const out=document.getElementById('spMsg');if(out)out.textContent='';
+}
+function renderSpecialDates(){
+  const box=document.getElementById('spList');if(!box)return;
+  const data=cfg.specialDates&&typeof cfg.specialDates==='object'&&!Array.isArray(cfg.specialDates)?cfg.specialDates:{};
+  const entries=Object.entries(data).filter(([d])=>isValidDateStr(d)&&d>=todayISO()).sort(([a],[b])=>a.localeCompare(b));
+  if(!entries.length){box.innerHTML='<p style="font-size:14px;color:var(--muted)">Nenhuma data especial cadastrada.</p>';return;}
+  box.innerHTML='<h4 style="margin:0 0 12px">Datas especiais cadastradas</h4>'+entries.map(([date,v])=>{
+    const special=specialForDate(date);
+    const status=special?(special.open?'Aberto '+special.start+' às '+special.end:'Fechado'):'Configuração inválida';
+    return '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:12px 0;border-bottom:1px solid #e4d8c8">'
+      +'<span><b>'+formatDateBR(date)+'</b> — '+esc(status)+'</span>'
+      +'<button class="btn btn-outline" style="padding:8px 12px" onclick="selectSpecialDate(\''+date+'\')">EDITAR</button></div>';
+  }).join('');
+}
+function selectSpecialDate(date){
+  document.getElementById('spDate').value=date;
+  onSpecialDateChange();
+  document.getElementById('spDate').scrollIntoView({behavior:'smooth',block:'center'});
+}
+function specialDateInput(){
+  const date=document.getElementById('spDate').value;
+  if(!isValidDateStr(date)||date<todayISO())throw new Error('Selecione uma data válida de hoje em diante.');
+  return date;
+}
+async function specialDateWrite(date,value){
+  /* PUT/DELETE com ETag protege contra editar uma data alterada em outra sessão.
+     Outras datas especiais continuam intactas. */
+  const path='/cfg/specialDates/'+date;
+  const url=await dbUrl(path);
+  const before=await fetch(url,{method:'GET',headers:{'X-Firebase-ETag':'true'},cache:'no-store'});
+  if(!before.ok)throw new Error('Não foi possível consultar a data no Firebase.');
+  const tag=before.headers.get('ETag');
+  if(!tag)throw new Error('Firebase não retornou o controle de versão da data.');
+  const resp=await fetch(url,{method:value===null?'DELETE':'PUT',headers:{'if-match':tag,...(value===null?{}:{'Content-Type':'application/json'})},...(value===null?{}:{body:JSON.stringify(value)})});
+  if(resp.status===412)throw new Error('A data foi modificada em outra sessão. Atualize o painel e tente novamente.');
+  if(!resp.ok)throw new Error('Firebase recusou a alteração (HTTP '+resp.status+').');
+  const current=cfg.specialDates&&typeof cfg.specialDates==='object'&&!Array.isArray(cfg.specialDates)?{...cfg.specialDates}:{};
+  if(value===null)delete current[date];else current[date]=value;
+  cfg={...cfg,specialDates:current};
+  renderPublic();renderSlots();renderSpecialDates();
+}
+async function saveSpecialDate(){
+  const out=document.getElementById('spMsg');
+  if(!admOk||!adminTok){out.textContent='Acesse com a senha da área profissional.';return;}
+  try{
+    const date=specialDateInput();
+    const mode=document.getElementById('spMode').value;
+    const value=mode==='closed'?{open:false}:{open:true,start:document.getElementById('spStart').value,end:document.getElementById('spEnd').value};
+    if(value.open&&(!isValidTimeStr(value.start)||!isValidTimeStr(value.end)||toMin(value.start)>=toMin(value.end)))throw new Error('O início deve ser anterior ao término do horário especial.');
+    const existing=await getBk(); // leitura administrativa de agendamentos existentes
+    const sameDay=existing.filter(b=>b.date===date);
+    if(!value.open&&sameDay.length){
+      if(!confirm('ATENÇÃO: já existem '+sameDay.length+' agendamento(s) em '+formatDateBR(date)+'. Fechar o dia NÃO cancela nem apaga esses atendimentos. Avise ou remarque os clientes, se necessário. Deseja impedir novos agendamentos?'))return;
+    }else if(value.open&&sameDay.some(b=>toMin(b.time)<toMin(value.start)||toMin(b.time)+Number(b.dur)>toMin(value.end))){
+      if(!confirm('Existem agendamentos fora do novo horário especial. Eles NÃO serão apagados nem remarcados. Deseja continuar?'))return;
+    }
+    await specialDateWrite(date,value);
+    out.innerHTML='<div class="notice ok" style="margin-top:12px">'+(value.open?'Data aberta':'Data fechada')+' em '+formatDateBR(date)+'. Reservas anteriores preservadas.</div>';
+  }catch(e){out.innerHTML='<div class="notice err" style="margin-top:12px">'+esc(e&&e.message||'Falha ao salvar a data')+'</div>';}
+}
+async function removeSpecialDate(){
+  const out=document.getElementById('spMsg');
+  if(!admOk||!adminTok){out.textContent='Acesse com a senha da área profissional.';return;}
+  try{
+    const date=specialDateInput();
+    if(!confirm('Remover a exceção de '+formatDateBR(date)+' e voltar ao horário semanal normal? Agendamentos não serão modificados.'))return;
+    await specialDateWrite(date,null);
+    out.innerHTML='<div class="notice ok" style="margin-top:12px">Exceção removida. O dia voltou a seguir a programação semanal.</div>';
+  }catch(e){out.innerHTML='<div class="notice err" style="margin-top:12px">'+esc(e&&e.message||'Falha ao remover a exceção')+'</div>';}
 }
 
 function renderTabCfg(){
@@ -1480,8 +1613,31 @@ async function startBookingStream(){
   }catch(e){} // polling mantém o sistema funcional sem streaming
 }
 startBookingStream();
+/* Mudanças em horários e datas específicas ficam visíveis sem exigir F5. */
+let scheduleSyncRunning=false;
+async function refreshSchedule(){
+  if(scheduleSyncRunning||savingBk)return;
+  scheduleSyncRunning=true;
+  try{
+    const remote=await dbGet('/cfg');
+    if(remote===undefined||!remote||typeof remote!=='object')return;
+    const next={...cfg,...remote};delete next.password;
+    if(!Object.prototype.hasOwnProperty.call(remote,'specialDates'))delete next.specialDates;
+    const changed=JSON.stringify({days:next.days,hours:next.hours,specialDates:next.specialDates,advanceDays:next.advanceDays,slotMin:next.slotMin})
+      !==JSON.stringify({days:cfg.days,hours:cfg.hours,specialDates:cfg.specialDates,advanceDays:cfg.advanceDays,slotMin:cfg.slotMin});
+    cfg=next;
+    if(changed){
+      const selectedService=document.getElementById('bkService').value;
+      renderPublic();
+      if(Array.from(document.getElementById('bkService').options).some(o=>o.value===selectedService))document.getElementById('bkService').value=selectedService;
+      renderSlots();
+      if(admOk)renderSpecialDates();
+    }
+  }finally{scheduleSyncRunning=false;}
+}
+setInterval(refreshSchedule,30000);
 setInterval(refreshBookings,30000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshBookings();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){refreshBookings();refreshSchedule();}});
 </script>
 <div id="rsModal" style="display:none;position:fixed;inset:0;background:rgba(30,26,22,.55);z-index:9999;padding:16px;overflow:auto">
   <div style="max-width:420px;margin:30px auto;background:#FFFFFF;border:1px solid #E8DDCF;border-radius:16px;padding:20px">
