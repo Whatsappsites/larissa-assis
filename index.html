@@ -558,6 +558,7 @@ let services=[
 ];
 let bookings=[];
 let publicDataReady=false; /* só habilita a confirmação quando o Firebase responder */
+let publicCfgLoaded=false; /* aviso de contato só depois da resposta /cfg do Firebase */
 
 /* ============ HELPERS ============ */
 const toMin=t=>{const[a,b]=t.split(':').map(Number);return a*60+b};
@@ -570,7 +571,22 @@ const todayISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMo
 const overlaps=(s1,e1,s2,e2)=>s1<e2&&s2<e1;
 const svc=id=>services.find(s=>s.id==id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function isCfgPlaceholder(){ const w=(cfg.whatsapp||'').replace(/\D/g,''); const ig=String(cfg.instagram||''); const mp=String(cfg.maps||''); return !w || w===FAKE_WHATSAPP || ig.includes('SEU-') || ig.includes('seu-instagram') || mp.includes('SEU-'); }
+function isCfgPlaceholder(){
+  const w=String(cfg.whatsapp||'').replace(/\D/g,'');
+  const local=(w.startsWith('55')&&(w.length===12||w.length===13))?w.slice(2):w;
+  return w===FAKE_WHATSAPP || !isValidPhone(local);
+}
+function updateCfgWarning(){
+  const warn=document.getElementById('cfgWarn');
+  if(!warn)return;
+  if(publicCfgLoaded && isCfgPlaceholder()){
+    warn.textContent='⚠️ WhatsApp não configurado corretamente. O contato por WhatsApp pode não funcionar. Verifique na Área da Profissional.';
+    warn.classList.add('show');
+  }else{
+    warn.classList.remove('show');
+    warn.textContent='';
+  }
+}
 function waLink(msg){let n=(cfg.whatsapp||'').replace(/\D/g,'');if(n===FAKE_WHATSAPP)return '#';if(n.length>11&&n.startsWith('55'))n=n.slice(2);if(n.length<10)return '#';return 'https://wa.me/55'+n+(msg?'?text='+encodeURIComponent(msg):'');}
 function isValidName(v){ const s=String(v||'').trim(); if(s.length<2||s.length>60)return false; if(/\d/.test(s))return false; return /^[A-Za-zÀ-ÿ\s'\-]+$/.test(s); }
 function isValidPhone(v){ const d=String(v||'').replace(/\D/g,''); if(d.length!==10&&d.length!==11)return false; if(/^(\d)\1+$/.test(d))return false; const ddd=Number(d.slice(0,2)); if(ddd<11||ddd>99)return false; if(d.length===11&&d[2]!=='9')return false; return true; }
@@ -620,8 +636,11 @@ function waClient(phone,msg){
 /* ============ BOOT: carrega dados do banco ============ */
 async function boot(){
   const c=await dbGet('/cfg'),sv=await dbGet('/services');
+  if(c!==undefined){
+    publicCfgLoaded=true;
+    if(c&&typeof c==='object'){cfg={...cfg,...c};delete cfg.password;}
+  }
   if(c===undefined||sv===undefined){publicDataReady=false;renderPublic();renderSlots();return;}
-  if(c&&typeof c==='object'){cfg={...cfg,...c};delete cfg.password;}
   publicDataReady=true;
   const slOk=serviceRecords(sv).map(x=>x.service);
   if(slOk.length)services=slOk;
@@ -637,8 +656,7 @@ function renderPublic(){
   document.getElementById('bkService').innerHTML=svcOk().map(s=>
     `<option value="${esc(s.id)}">${esc(s.name)} — R$ ${Number(s.price).toFixed(2).replace('.',',')} (${esc(s.dur)}min)</option>`).join('');
   fillDates();
-  const warn=document.getElementById('cfgWarn');
-  if(warn){ if(isCfgPlaceholder()){ warn.textContent='⚠️ Configuração pendente: WhatsApp, Instagram ou Maps ainda não foram preenchidos no painel da profissional. O agendamento por WhatsApp pode não funcionar até corrigir.'; warn.classList.add('show'); } else warn.classList.remove('show'); }
+  updateCfgWarning();
   const wa=waLink('Olá! Vim pelo site do Larissa Assis e gostaria de mais informações.');
   document.getElementById('floatWa').href=wa;
   document.getElementById('footWa').href=wa;
@@ -1548,6 +1566,7 @@ async function saveCfg(){
     if(np){if(np.length<6){document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">A senha deve ter ao menos 6 caracteres.</div>';return;}try{const rr=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:update?key='+FB_API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:adminTok,password:np,returnSecureToken:true})});const jj=await rr.json();if(!jj.idToken)throw 0;setTok(jj);}catch(x){document.getElementById('cfgMsg').innerHTML='<div class="notice err" style="margin-top:12px">Não foi possível trocar a senha.</div>';return;}}
     await servicePutIfUnchanged('/cfg',fresh,snap.etag);
     cfg=fresh;
+    publicCfgLoaded=true;
     renderPublic();
     document.getElementById('cfgMsg').innerHTML='<div class="notice ok" style="margin-top:12px">Configurações salvas! Já visíveis para todos os clientes.</div>';
   }catch(e){netErr();}
@@ -1908,6 +1927,8 @@ async function refreshSchedule(){
     const changed=JSON.stringify({days:next.days,hours:next.hours,specialDates:next.specialDates,advanceDays:next.advanceDays,slotMin:next.slotMin})
       !==JSON.stringify({days:cfg.days,hours:cfg.hours,specialDates:cfg.specialDates,advanceDays:cfg.advanceDays,slotMin:cfg.slotMin});
     cfg=next;
+    publicCfgLoaded=true;
+    updateCfgWarning();
     if(changed){
       const selectedService=document.getElementById('bkService').value;
       renderPublic();
