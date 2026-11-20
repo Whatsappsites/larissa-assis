@@ -447,6 +447,9 @@ const FB_API_KEY='AIzaSyDLxQA4vQNvm56McFhyw0gLCjUCy3wJVKE', ADMIN_EMAIL='jv55241
 const NTFY_TOPIC=''; /* preencher com tópico único e secreto ou deixar vazio para desativar. Nunca usar o tópico TROCAR-... */
 const FAKE_WHATSAPP='5575999999999'; /* número falso antigo — se /cfg vier com ele, o site avisa em vez de usar */
 let adminTok=null,adminRef=null,adminExp=0;
+/* Evita que leituras antigas do Firebase repovoem a agenda após uma edição confirmada. */
+let bookingRevision=0, bookingRefreshRequest=0;
+const cancellingBookings=new Set();
 function setTok(j){adminTok=j.idToken||j.id_token;adminRef=j.refreshToken||j.refresh_token;adminExp=Date.now()+Number(j.expiresIn||j.expires_in)*1000;}
 async function authQ(){
   if(!adminTok)return '';
@@ -495,7 +498,7 @@ async function bkApply(fn){
     else if(JSON.stringify(next[k])!==JSON.stringify(m[k])){const b=next[k],old=m[k];upd['bookings/'+k]=b;upd['slots/'+b.id]={id:b.id,date:b.date,time:b.time,dur:b.dur,createdAt:b.createdAt||Date.now()};if(old.date!==b.date||old.time!==b.time||old.dur!==b.dur){const oK=takenKeysFor(old.date,old.time,old.dur),nK=takenKeysFor(b.date,b.time,b.dur);oK.forEach(tk=>{if(!nK.includes(tk))upd['taken/'+tk]=null;});nK.forEach(tk=>{upd['taken/'+tk]=takenValFor(b,tk);});}} /* só mexe na trava se data/hora/duração mudou: done=true não toca na trava */
   }
   for(const k in next){if(!m[k]){const b=next[k];upd['bookings/'+k]=b;upd['slots/'+b.id]={id:b.id,date:b.date,time:b.time,dur:b.dur,createdAt:b.createdAt||Date.now()};takenKeysFor(b.date,b.time,b.dur).forEach(tk=>{upd['taken/'+tk]=takenValFor(b,tk);});}}
-  if(Object.keys(upd).length)await dbPatch(upd);
+  if(Object.keys(upd).length){await dbPatch(upd);bookingRevision++;}
   return Object.values(next);
 }
 async function dbPut(path,val){
@@ -960,7 +963,7 @@ function renderTabAg(){
       +'<a class="btn btn-outline" style="padding:7px 14px;font-size:13px" target="_blank" href="'+waClient(b.phone,mensagemLembreteWhatsApp(b))+'">WhatsApp</a>'
       +(podeConfirmar?'<button class="btn" style="padding:7px 14px;font-size:13px;border-color:#2ecc71;color:#2ecc71" onclick="doneBk(\''+b.id+'\')">✅ Confirmar atendimento</button>':'')
       +'<button class="btn btn-outline" style="padding:7px 14px;font-size:13px" onclick="reschedule(\''+b.id+'\')">Remarcar</button>'
-      +'<button class="btn btn-danger" onclick="cancelBk(\''+b.id+'\')">Cancelar</button></div></div>';
+      +'<button class="btn btn-danger" onclick="cancelBk(\''+b.id+'\',this)">Cancelar</button></div></div>';
   });
   box.innerHTML=html;
   if(oldOpen)fillOld();
@@ -986,7 +989,7 @@ function fillOld(){
       +'<div><b style="color:var(--gold)">'+esc(b.time)+'</b> — '+esc(b.service)+' <span class="badge">R$ '+Number(b.price).toFixed(2).replace('.',',')+'</span>'
       +(b.done?' <span class="badge" style="background:rgba(46,204,113,.15);border:1px solid #2ecc71;color:#2ecc71">✅ Atendido</span>':' <span class="badge">⏳ Não confirmado</span>')
       +'<br><span style="color:var(--muted);font-size:13px">'+esc(b.name)+' · 📱 '+esc(b.phone)+'</span></div>'
-      +(b.done?'':'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" style="padding:7px 14px;font-size:13px;border-color:#2ecc71;color:#2ecc71" onclick="doneBk(\''+b.id+'\')">✅ Confirmar atendimento</button><button class="btn btn-danger" onclick="cancelBk(\''+b.id+'\')">Cancelar</button></div>')
+      +(b.done?'':'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" style="padding:7px 14px;font-size:13px;border-color:#2ecc71;color:#2ecc71" onclick="doneBk(\''+b.id+'\')">✅ Confirmar atendimento</button><button class="btn btn-danger" onclick="cancelBk(\''+b.id+'\',this)">Cancelar</button></div>')
       +'</div>';
   });
   el.innerHTML=html||'<div class="notice info">Nenhum agendamento antigo.</div>';
@@ -1040,23 +1043,76 @@ async function doneBk(id){
     renderAdmin();
   }catch(e){alert(e&&e.message||'Não foi possível confirmar atendimento.');}
 }
-async function cancelBk(id){
-  const selected=bookings.find(x=>String(x.id)===String(id));if(!selected)return;
-  if(!confirm('Cancelar este agendamento? Esta ação libera o horário para outro cliente.'))return;
-  if(prompt('Confirme digitando CANCELAR para evitar exclusões acidentais:')!=='CANCELAR')return;
+async function cancelBk(id,button){
+  const bid=String(id);
+  const selected=(bookings||[]).find(x=>String(x.id)===bid);
+  if(!selected)return alert('Agendamento não encontrado na agenda atual. Atualize a página.');
+  if(!admOk||!adminTok)return alert('Sua sessão profissional não está ativa. Entre novamente antes de cancelar.');
+  if(cancellingBookings.has(bid))return;
+  if(!confirm('Cancelar o agendamento de '+selected.name+' em '+selected.date.split('-').reverse().join('/')+' às '+selected.time+'?\n\nUm backup preventivo será salvo antes da exclusão. O horário será liberado.'))return;
+  cancellingBookings.add(bid);
+  const oldLabel=button?button.textContent:'';
+  if(button){button.disabled=true;button.textContent='Cancelando…';}
+  let patchAttempted=false;
   try{
-    if(!(await makeBackup('antes')))throw new Error('Falha ao salvar cópia preventiva. Cancelamento interrompido.');
-    bookings=await bkApply(m=>{
-      const key=Object.keys(m).find(k=>String(m[k].id)===String(id));
-      if(key===undefined)throw new Error('Esse agendamento não existe mais. Nada foi excluído.');
-      const current=m[key];
-      if(current.date!==selected.date||current.time!==selected.time||Number(current.dur)!==Number(selected.dur))
-        throw new Error('O agendamento mudou em outra sessão. Nada foi excluído; atualize a agenda.');
-      delete m[key];
-    });
+    const m=await bkMap();
+    const key=Object.keys(m).find(k=>m[k]&&String(m[k].id)===bid);
+    if(key===undefined)throw new Error('Esse agendamento já não existe no banco. Atualize a agenda.');
+    const current=m[key];
+    if(current.date!==selected.date||current.time!==selected.time||Number(current.dur)!==Number(selected.dur)||String(current.name)!==String(selected.name)||String(current.phone)!==String(selected.phone))
+      throw new Error('Esse agendamento foi modificado em outra sessão. Nenhum dado foi excluído. Atualize a agenda.');
+    /* Consulta as estruturas públicas antes de apagar. Não retira travas de outra reserva. */
+    const [publicSlot,rawTaken]=await Promise.all([dbGet('/slots/'+bid),dbGet('/taken')]);
+    if(publicSlot===undefined||rawTaken===undefined)
+      throw new Error('Não foi possível conferir horários/travas no Firebase. Nenhum cancelamento foi enviado.');
+    if(publicSlot&&String(publicSlot.id)!==bid)
+      throw new Error('O horário público pertence a outro agendamento. Operação interrompida para proteger a agenda.');
+    const taken=rawTaken&&typeof rawTaken==='object'&&!Array.isArray(rawTaken)?rawTaken:{};
+    const keys=takenKeysFor(current.date,current.time,current.dur);
+    for(const tk of keys){
+      if(taken[tk]&&String(taken[tk].bookingId)!==bid)
+        throw new Error('Há uma trava de outro agendamento neste horário. Nada foi excluído.');
+    }
+    for(const other of Object.values(m)){
+      if(!other||String(other.id)===bid||other.date!==current.date)continue;
+      if(overlaps(toMin(current.time),toMin(current.time)+Number(current.dur),toMin(other.time),toMin(other.time)+Number(other.dur)))
+        throw new Error('Existe outro agendamento no mesmo período. Cancelamento interrompido para não liberar uma vaga ocupada.');
+    }
+    /* PATCH multi-local: apaga apenas o agendamento selecionado e suas próprias referências. */
+    const changes={['bookings/'+key]:null};
+    if(publicSlot)changes['slots/'+bid]=null;
+    keys.forEach(tk=>{if(taken[tk])changes['taken/'+tk]=null;});
+    /* Só cria o backup depois da conferência. Se o Firebase recusar, cancela sem apagar. */
+    try{
+      if(!(await makeBackup('antes')))throw new Error('Backup vazio ou indisponível.');
+    }catch(backupError){
+      throw new Error('O backup preventivo falhou ('+(backupError&&backupError.message||'erro desconhecido')+'). O agendamento NÃO foi excluído. Verifique a permissão de /backups e o espaço do Firebase.');
+    }
+    patchAttempted=true;
+    try{await dbPatch(changes);}catch(writeError){
+      const actual=await dbGet('/bookings/'+key);
+      if(actual!==null)throw writeError; // em caso de falha de rede, pode ter sido gravado
+    }
+    /* Só informa sucesso depois de comprovar que o registro não existe no Firebase. */
+    const check=await dbGet('/bookings/'+key);
+    if(check===undefined)throw new Error('Não foi possível confirmar a exclusão no servidor. Atualize a agenda antes de tentar novamente.');
+    if(check!==null)throw new Error('O Firebase ainda contém o agendamento. O cancelamento NÃO foi confirmado.');
+    bookingRevision++;
+    const latest=await dbGet('/bookings');
+    if(latest!==undefined){
+      bookings=Array.isArray(latest)?latest.filter(x=>x&&isSafeId(x.id)):
+        Object.entries(latest||{}).filter(([k,v])=>v&&isSafeId(k)&&isSafeId(v.id)).map(([,v])=>v);
+    }else{
+      bookings=bookings.filter(x=>String(x.id)!==bid);
+    }
     renderTabAg();renderPublic();renderSlots();
-    alert('Agendamento cancelado.');
-  }catch(e){alert(e&&e.message||'Não foi possível cancelar. Nenhuma exclusão foi confirmada.');}
+    alert('Agendamento cancelado e exclusão confirmada no Firebase.');
+  }catch(e){
+    alert((e&&e.message||'Falha ao cancelar.')+(patchAttempted?'\nConfira a agenda atualizada antes de repetir o cancelamento.':'\nNenhum pedido de exclusão foi enviado.'));
+  }finally{
+    cancellingBookings.delete(bid);
+    if(button){button.disabled=false;button.textContent=oldLabel;}
+  }
 }
 let rsB=null;
 function reschedule(id){
@@ -1760,10 +1816,12 @@ function admWarn(on){
   d.textContent='⚠️ Agenda desatualizada: sem conexão ou sessão expirada. Feche e abra o site e entre de novo.';
 }
 async function refreshBookings(){
-  let bk0;try{bk0=await getBk();}catch(e){admWarn(!!adminTok);return;}
+  const request=++bookingRefreshRequest, revision=bookingRevision, wasAdmin=!!adminTok;
+  let bk0;try{bk0=await getBk();}catch(e){if(request===bookingRefreshRequest)admWarn(!!adminTok);return;}
+  if(request!==bookingRefreshRequest||revision!==bookingRevision||wasAdmin!==!!adminTok)return;
   admWarn(false);
   publicDataReady=true;
-  if(admOk&&adminTok){const lw=await dbGet('/lastWeek');lastWeekTotal=(lw&&typeof lw.total==='number')?lw.total:null;}
+  if(admOk&&adminTok){const lw=await dbGet('/lastWeek');if(request!==bookingRefreshRequest||revision!==bookingRevision||wasAdmin!==!!adminTok)return;lastWeekTotal=(lw&&typeof lw.total==='number')?lw.total:null;}
   {
     bookings=bk0;
     checkNewBk();
